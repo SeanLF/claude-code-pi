@@ -209,8 +209,8 @@ importers:
         specifier: 0.164.0
         version: 0.164.0
       '@opencode-ai/sdk':
-        specifier: 1.19.4
-        version: 1.19.4
+        specifier: 1.19.5
+        version: 1.19.5
       '@types/node':
         specifier: 26.6.5
         version: 26.6.5
@@ -478,8 +478,8 @@ packages:
     resolution: {integrity: sha512-FyhTWM4Xa8hXpWhkr9MOvROVhBqTeD+s/XCzVLzqSQXTSnGSNkdBWjv0IzZdOO29BX4LwtMjul6ogB8tOME5og==}
     engines: {node: '>=18'}
 
-  '@opencode-ai/sdk@1.19.4':
-    resolution: {integrity: sha512-3Wuc4t8gEuWKHbX1Na9oDK6PgOveid70l4Ks5RCjRIo2RcP8FQN3NS6Mg3XWc2+WiUfpfrmvBWlh5u1zeQfDQw==}
+  '@opencode-ai/sdk@1.19.5':
+    resolution: {integrity: sha512-+bqu8gHiwmq96T9q5G34uLNHWCInIMsrE3hytCNHj1cVaxjY0AGJyNCT1rkeeZwgPU7A5TMTNwN+0XxCO2vqDg==}
 
   '@types/node@26.6.5':
     resolution: {integrity: sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg==}
@@ -789,7 +789,7 @@ snapshots:
 
   '@openai/codex-sdk@0.164.0': {}
 
-  '@opencode-ai/sdk@1.19.4': {}
+  '@opencode-ai/sdk@1.19.5': {}
 
   '@types/node@26.6.5':
     dependencies:
