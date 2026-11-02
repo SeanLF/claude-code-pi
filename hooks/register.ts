@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import { drawCall, drawGroup } from './acp/render'
 import { answerCall, CHILD_CALL, endJob, waitStep } from './acp/steps'
 import type { Adapter } from './adapter'
-import { woken } from './children'
+import { waitChild, woken } from './children'
 import { HARNESSES } from './harnesses'
 import { cachedModels, refreshModels } from './models'
 import { descriptionOf, isModel, promptOf } from './prompt'
@@ -133,6 +133,9 @@ export const register: Register = (on, options) => {
       viaSteps: {
         wait: ({ agentId, turnId }: { agentId: string; turnId: string }) =>
           waitStep(world, agentId, turnId, (wake) => built.clock.after(5_000, wake)),
+      },
+      viaChildren: {
+        wait: ({ key }: { key: string }) => waitChild(world, key, (wake) => built.clock.after(5_000, wake)),
       },
     }
   })

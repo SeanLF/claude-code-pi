@@ -202,7 +202,7 @@ async function* nestedStep(
   const handback = await handbackOf(w, $, agentId)
   const started: Job = {
     turnId: e.turnId,
-    gen: childRun(w, agentId, adapter.name, e, abort.signal, handback),
+    gen: childRun(w, agentId, adapter.name, e, abort.signal, handback, (key) => $.viaChildren.wait({ key })),
     held: [],
     outputs: new Map(),
     abort,
