@@ -55,6 +55,9 @@ function halted(job: Job): boolean {
   return true
 }
 
+// What a step says when the run's producer or its engine wait fails, and the run is ended.
+const NOT_FOLLOWED = 'The harness run could not be followed: its producer or its wait failed.'
+
 // The job's next chunk. Requested once and shared: a step that stops waiting leaves the same read for the
 // next step or the tool call to take, so the generator advances once per chunk.
 function read(job: Job): Promise<IteratorResult<TurnStepChunk | Mark, TurnStepResult>> {
@@ -133,19 +136,24 @@ export async function* pump(
       } else if (halted(job)) continue
       else {
         // Bounded: the hook answers within its budget. Without a chunk yet, wait again, and the read stays pending.
+        // A failed read or wait ends the step with an explicit answer (below), never a hook error, which
+        // would send the request to the model without the hooks.
         const arrived = await Promise.race([
-          read(job).then(() => true),
+          read(job).then(
+            () => true,
+            () => undefined,
+          ),
           wait().then(
             () => false,
             () => undefined,
           ),
         ])
         if (arrived === undefined) {
-          // The engine could not hold the wait: end the step with an explicit answer, never a hook error,
-          // which would send the request to the model without the hooks.
           job.abort.abort()
-          job.final ??= { ...ended(job.turnId), answer: 'The harness run could not be followed: its wait failed.' }
+          job.final ??= { ...ended(job.turnId), answer: NOT_FOLLOWED }
           void job.gen.return(undefined as never).catch(() => {})
+          // After the abort: a caller that stops at this yield must not leave the run running.
+          yield { kind: 'text', index: block(-2), text: NOT_FOLLOWED }
           continue
         }
         if (!arrived) continue
@@ -217,7 +225,15 @@ export async function answerCall(
         return done.failed ? { result: done.output || 'failed', isError: true } : { result: done.output || NO_OUTPUT }
       }
       if (job.final !== undefined || halted(job)) return { result: 'The harness run ended before this call finished.' }
-      const r = await read(job)
+      let r: IteratorResult<TurnStepChunk | Mark, TurnStepResult>
+      try {
+        r = await read(job)
+      } catch {
+        // The producer failed: end the run and answer the call, rather than fail the tool-call hook.
+        job.abort.abort()
+        job.final ??= { ...ended(job.turnId), answer: NOT_FOLLOWED }
+        return { result: NOT_FOLLOWED }
+      }
       job.reading = undefined
       if (r.done) {
         job.final = r.value
