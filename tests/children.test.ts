@@ -154,7 +154,7 @@ test('a spawn mark ends the step with an Agent call in the background, remembere
   })()
   const job: Job = { turnId: 't1', gen, held: [], outputs: new Map(), abort: new AbortController(), count: 0 }
   const w = { tool: 'mcp__plugin_via_step__step', jobs: new Map([['a1', job]]), calls: new Map(), spawns: new Map<string, string>() }
-  const step = pump(w, job, { turnId: 't1', index: 0, agentId: 'a1' }, new AbortController().signal)
+  const step = pump(w, job, { turnId: 't1', index: 0, agentId: 'a1' }, new AbortController().signal, () => new Promise(() => {}))
   const chunks: TurnStepChunk[] = []
   let r = await step.next()
   while (!r.done) {
