@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/index.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.1.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/index.js
 var AGENT_METHODS = {
   initialize: "initialize",
   authenticate: "authenticate",
@@ -6322,7 +6322,7 @@ function preprocess(fn, schema) {
   });
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/schema-deserialize.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.1.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/schema-deserialize.js
 var skippedItem = /* @__PURE__ */ Symbol("skippedItem");
 function defaultOnError(schema, fallback) {
   return schema.catch(fallback);
@@ -6399,9 +6399,17 @@ function defaultOnErrorOptionalStringTag(schema, key) {
 function vecSkipError(itemSchema) {
   return array(itemSchema.catch(skippedItem)).transform((items) => items.filter((item) => item !== skippedItem));
 }
+function defaultOnNull(schema, empty) {
+  return preprocess((value) => value === null ? empty() : value, schema);
+}
+function wideInt() {
+  return number2().refine(Number.isInteger, {
+    error: "Invalid input: expected int, received number"
+  });
+}
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/zod.gen.js
-var zRequestId = union([number2(), string2()]).nullable();
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.1.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/zod.gen.js
+var zRequestId = union([wideInt(), string2()]).nullable();
 var zSessionId = string2();
 var zWriteTextFileRequest = object({
   sessionId: zSessionId,
@@ -6469,7 +6477,7 @@ var zResourceLink = object({
   description: defaultOnError(string2().nullish(), () => void 0),
   mimeType: defaultOnError(string2().nullish(), () => void 0),
   name: string2(),
-  size: defaultOnError(number2().nullish(), () => void 0),
+  size: defaultOnError(wideInt().nullish(), () => void 0),
   title: defaultOnError(string2().nullish(), () => void 0),
   uri: string2(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
@@ -6584,10 +6592,10 @@ var zEnvVariable = object({
 var zCreateTerminalRequest = object({
   sessionId: zSessionId,
   command: string2(),
-  args: array(string2()).optional(),
-  env: array(zEnvVariable).optional(),
+  args: defaultOnNull(array(string2()), () => []).optional(),
+  env: defaultOnNull(array(zEnvVariable), () => []).optional(),
   cwd: string2().nullish(),
-  outputByteLimit: number2().nullish(),
+  outputByteLimit: wideInt().gte(0).nullish(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zTerminalOutputRequest = object({
@@ -6657,9 +6665,9 @@ var zNumberPropertySchema = object({
 var zIntegerPropertySchema = object({
   title: defaultOnError(string2().nullish(), () => void 0),
   description: defaultOnError(string2().nullish(), () => void 0),
-  minimum: number2().nullish(),
-  maximum: number2().nullish(),
-  default: defaultOnError(number2().nullish(), () => void 0),
+  minimum: wideInt().nullish(),
+  maximum: wideInt().nullish(),
+  default: defaultOnError(wideInt().nullish(), () => void 0),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zBooleanPropertySchema = object({
@@ -6688,8 +6696,8 @@ var zMultiSelectItems = preserveCustomPayload(union([
 var zMultiSelectPropertySchema = object({
   title: defaultOnError(string2().nullish(), () => void 0),
   description: defaultOnError(string2().nullish(), () => void 0),
-  minItems: number2().nullish(),
-  maxItems: number2().nullish(),
+  minItems: wideInt().gte(0).nullish(),
+  maxItems: wideInt().gte(0).nullish(),
   items: zMultiSelectItems,
   default: defaultOnError(vecSkipError(string2()).nullish(), () => void 0),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
@@ -6863,8 +6871,8 @@ var zAuthMethodTerminal = object({
   id: zAuthMethodId,
   name: string2(),
   description: defaultOnError(string2().nullish(), () => void 0),
-  args: array(string2()).optional(),
-  env: record(string2(), string2()).optional(),
+  args: defaultOnNull(array(string2()), () => []).optional(),
+  env: defaultOnNull(record(string2(), string2()), () => ({})).optional(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zAuthMethodAgent = object({
@@ -7072,12 +7080,12 @@ var zStopReason = union([
   literal("cancelled")
 ]);
 var zUsage = object({
-  totalTokens: number2(),
-  inputTokens: number2(),
-  outputTokens: number2(),
-  thoughtTokens: defaultOnError(number2().nullish(), () => void 0),
-  cachedReadTokens: defaultOnError(number2().nullish(), () => void 0),
-  cachedWriteTokens: defaultOnError(number2().nullish(), () => void 0),
+  totalTokens: wideInt().gte(0),
+  inputTokens: wideInt().gte(0),
+  outputTokens: wideInt().gte(0),
+  thoughtTokens: defaultOnError(wideInt().gte(0).nullish(), () => void 0),
+  cachedReadTokens: defaultOnError(wideInt().gte(0).nullish(), () => void 0),
+  cachedWriteTokens: defaultOnError(wideInt().gte(0).nullish(), () => void 0),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zPromptResponse = object({
@@ -7241,8 +7249,8 @@ var zCost = object({
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zUsageUpdate = object({
-  used: number2(),
-  size: number2(),
+  used: wideInt().gte(0),
+  size: wideInt().gte(0),
   cost: defaultOnError(zCost.nullish(), () => void 0),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
@@ -7370,13 +7378,13 @@ var zSessionMessage = object({
   messageId: zMessageId,
   senderSessionId: defaultOnError(zSessionId.nullish(), () => void 0),
   recipientSessionId: defaultOnError(zSessionId.nullish(), () => void 0),
+  senderMessageId: defaultOnError(zMessageId.nullish(), () => void 0),
+  recipientMessageId: defaultOnError(zMessageId.nullish(), () => void 0),
   content: defaultOnError(vecSkipError(zContentBlock).nullish(), () => void 0),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zSessionMessageChunk = object({
   messageId: zMessageId,
-  senderSessionId: defaultOnError(zSessionId.nullish(), () => void 0),
-  recipientSessionId: defaultOnError(zSessionId.nullish(), () => void 0),
   content: zContentBlock,
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
@@ -7551,13 +7559,13 @@ var zHttpHeader = object({
 var zMcpServerHttp = object({
   name: string2(),
   url: string2(),
-  headers: array(zHttpHeader),
+  headers: defaultOnNull(array(zHttpHeader), () => []),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zMcpServerSse = object({
   name: string2(),
   url: string2(),
-  headers: array(zHttpHeader),
+  headers: defaultOnNull(array(zHttpHeader), () => []),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zMcpServerAcp = object({
@@ -7568,8 +7576,8 @@ var zMcpServerAcp = object({
 var zMcpServerStdio = object({
   name: string2(),
   command: string2(),
-  args: array(string2()),
-  env: array(zEnvVariable),
+  args: defaultOnNull(array(string2()), () => []),
+  env: defaultOnNull(array(zEnvVariable), () => []),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zMcpServer = union([
@@ -7596,15 +7604,15 @@ var zSystemPrompt = object({
 });
 var zNewSessionRequest = object({
   cwd: string2(),
-  additionalDirectories: array(string2()).optional(),
-  mcpServers: array(zMcpServer),
+  additionalDirectories: defaultOnNull(array(string2()), () => []).optional(),
+  mcpServers: defaultOnNull(array(zMcpServer), () => []),
   systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zLoadSessionRequest = object({
-  mcpServers: array(zMcpServer),
+  mcpServers: defaultOnNull(array(zMcpServer), () => []),
   cwd: string2(),
-  additionalDirectories: array(string2()).optional(),
+  additionalDirectories: defaultOnNull(array(string2()), () => []).optional(),
   sessionId: zSessionId,
   systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
@@ -7621,16 +7629,16 @@ var zDeleteSessionRequest = object({
 var zForkSessionRequest = object({
   sessionId: zSessionId,
   cwd: string2(),
-  additionalDirectories: array(string2()).optional(),
-  mcpServers: array(zMcpServer).optional(),
+  additionalDirectories: defaultOnNull(array(string2()), () => []).optional(),
+  mcpServers: defaultOnNull(array(zMcpServer), () => []).optional(),
   systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zResumeSessionRequest = object({
   sessionId: zSessionId,
   cwd: string2(),
-  additionalDirectories: array(string2()).optional(),
-  mcpServers: array(zMcpServer).optional(),
+  additionalDirectories: defaultOnNull(array(string2()), () => []).optional(),
+  mcpServers: defaultOnNull(array(zMcpServer), () => []).optional(),
   systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
@@ -7645,8 +7653,8 @@ var zSetSessionModeRequest = object({
 });
 var zSetSessionConfigOptionRequest = intersection(union([
   object({
-    value: boolean2(),
-    type: literal("boolean")
+    type: literal("boolean"),
+    value: boolean2()
   }),
   object({
     value: zSessionConfigValueId
@@ -7739,7 +7747,7 @@ var zKillTerminalResponse = object({
 });
 var zElicitationContentValue = union([
   string2(),
-  number2(),
+  wideInt(),
   number2(),
   boolean2(),
   array(string2())
@@ -7824,7 +7832,7 @@ var zCancelRequestNotification = object({
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/jsonrpc.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.1.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/jsonrpc.js
 var CANCEL_REQUEST_METHOD = "$/cancel_request";
 function isRequestMessage(value) {
   return isJsonRpcEnvelope(value) && "id" in value && typeof value["method"] === "string" && isJsonRpcId(value["id"]);
@@ -7921,6 +7929,15 @@ function errorDetails(error2) {
 function isZodError(error2) {
   return typeof error2 === "object" && error2 !== null && "name" in error2 && error2.name === "ZodError" && "issues" in error2 && Array.isArray(error2.issues) && "format" in error2 && typeof error2.format === "function";
 }
+function describeInvalidMessage(message) {
+  if (Array.isArray(message)) {
+    return { type: "array" };
+  }
+  if (isRecord(message)) {
+    return { type: "object", keys: Object.keys(message) };
+  }
+  return { type: message === null ? "null" : typeof message };
+}
 function errorToResult(error2) {
   if (error2 instanceof RequestError) {
     return error2.toResult();
@@ -8003,6 +8020,7 @@ var RequestResponder = class {
   }
 };
 var requestBatchSizes = /* @__PURE__ */ new WeakMap();
+var nullIdResponders = /* @__PURE__ */ new WeakSet();
 var HandlerRegistration = class {
   disposeHandler;
   active = true;
@@ -8195,9 +8213,13 @@ var Connection = class {
   /**
    * Sends a non-empty JSON-RPC batch in one transport message.
    *
-   * Requests and notifications are processed independently by the peer. The
-   * returned tuple preserves the input order: request entries resolve to their
-   * mapped response, while notification entries resolve to `undefined`.
+   * Requests and notifications are processed independently by the peer, and
+   * array position does not establish processing order. Callers **MUST NOT**
+   * batch messages whose correctness depends on their relative order, such as
+   * two `session/update` notifications for the same entity; send those as
+   * separate messages instead. The returned tuple preserves the input order:
+   * request entries resolve to their mapped response, while notification
+   * entries resolve to `undefined`.
    */
   sendBatch(entries) {
     if (this.abortController.signal.aborted) {
@@ -8435,7 +8457,7 @@ var Connection = class {
       return Promise.resolve();
     }
     if (!isRecord(message)) {
-      console.error("Invalid message", { message });
+      console.error("Invalid message", describeInvalidMessage(message));
       return Promise.resolve();
     }
     if ("method" in message) {
@@ -8446,7 +8468,7 @@ var Connection = class {
     } else if ("id" in message) {
       this.handleResponse(message);
     } else {
-      console.error("Invalid message", { message });
+      console.error("Invalid message", describeInvalidMessage(message));
     }
     return Promise.resolve();
   }
@@ -8488,7 +8510,11 @@ var Connection = class {
       } else {
         const response = errorToResult(error2);
         if ("error" in response) {
-          console.error("Error handling notification", message.raw, response.error);
+          console.error("Error handling notification", {
+            method: message.method,
+            code: response.error.code,
+            message: response.error.message
+          });
         }
       }
     }
@@ -8505,7 +8531,7 @@ var Connection = class {
       const responder = new RequestResponder(message.id, (result2) => {
         const response = {
           jsonrpc: "2.0",
-          id: message.id,
+          id: nullIdResponders.has(responder) ? null : message.id,
           ...result2
         };
         return sendResponse ? sendResponse(response) : this.sendWireMessage(response);
@@ -8728,11 +8754,33 @@ var RequestError = class _RequestError extends Error {
     return new _RequestError(-32e3, `Authentication required${additionalMessage ? `: ${additionalMessage}` : ""}`, data);
   }
   /**
-   * Resource, such as a file, was not found
+   * A referenced resource, such as a session or file, does not exist.
+   *
+   * For an unknown or inactive session, prefer
+   * {@link RequestError.sessionNotFound}, which sets `data.sessionId` as the
+   * protocol expects.
    */
   static resourceNotFound(uri) {
     return new _RequestError(-32002, `Resource not found${uri ? `: ${uri}` : ""}`, uri && { uri });
   }
+  /**
+   * The session named by a session-scoped request does not exist or is not
+   * active on this connection.
+   *
+   * Produces a `-32002` (Resource not found) error with `data.sessionId` set
+   * to the requested session ID.
+   */
+  static sessionNotFound(sessionId) {
+    return new _RequestError(-32002, "Resource not found", {
+      sessionId
+    });
+  }
+  /**
+   * No supported protocol version is at or below the requested version.
+   *
+   * Produces a `-32022` error whose data lists the `requested` version and the
+   * `supported` versions.
+   */
   static unsupportedProtocolVersion(requested, supported) {
     return new _RequestError(-32022, "Unsupported protocol version", {
       requested,
@@ -8770,7 +8818,7 @@ function protocolErrorResponse(error2) {
   };
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream-limits.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.1.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream-limits.js
 var DEFAULT_MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
 var MessageTooLargeError = class extends Error {
   maxMessageBytes;
@@ -8829,7 +8877,7 @@ var MessageBuffer = class {
   }
 };
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/line-buffer.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.1.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/line-buffer.js
 var newline = 10;
 var carriageReturn = 13;
 var LineBuffer = class {
@@ -8916,7 +8964,7 @@ function stripCarriageReturn(line) {
   return line[line.byteLength - 1] === carriageReturn ? line.subarray(0, -1) : line;
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.1.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream.js
 function ndJsonStream(output, input, options = {}) {
   const maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes);
   const textEncoder = new TextEncoder();
@@ -9020,7 +9068,7 @@ function ndJsonStream(output, input, options = {}) {
   return { readable, writable };
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/guards.gen.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.1.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/guards.gen.js
 var zGuardCreateElicitationRequestForm = zElicitationFormMode.and(object({ mode: literal("form") })).and(object({ message: string2() }));
 var zGuardCreateElicitationRequestUrl = zElicitationUrlMode.and(object({ mode: literal("url") })).and(object({ message: string2() }));
 var zGuardCreateElicitationRequestCustom = union([zElicitationSessionScope, zElicitationRequestScope]).and(object({ message: string2() }));
@@ -9059,7 +9107,7 @@ var zGuardCreateElicitationResponseCancel = object({
   action: literal("cancel")
 });
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/app-handlers.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.1.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/app-handlers.js
 function parseParams(parser, params) {
   if (!parser) {
     return params;
@@ -9074,8 +9122,8 @@ function registerAppRequest(builder, spec, context, handler, serializeResponse, 
     try {
       const response = await handler(context(params, cx, responder.signal, responder.id, method));
       const sentResponse = serializeResponse ? serializeResponse(response) : response;
+      lifecycle?.beforeResponse(params, sentResponse, cx);
       await responder.respond(sentResponse);
-      lifecycle?.afterResponse(params, sentResponse, cx);
     } catch (error2) {
       lifecycle?.onError(cx, error2);
       throw error2;
@@ -9109,9 +9157,36 @@ function registerAppNotification(builder, spec, context, handler) {
   }
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/acp.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.1.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/connection-access.js
+var connectionContextOf = /* @__PURE__ */ Symbol("connectionContextOf");
+
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.1.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/acp.js
 function ndJsonStream2(output, input, options) {
   return ndJsonStream(output, input, options);
+}
+var initializedConnections = /* @__PURE__ */ new WeakSet();
+function agentInitializationGate(enabled) {
+  return {
+    handleMessage(message, cx) {
+      if (message.kind !== "request" || !enabled() || initializedConnections.has(cx)) {
+        return Handled.no(message);
+      }
+      if (message.method !== AGENT_METHODS.initialize) {
+        return message.responder.respondWithError(RequestError.invalidRequest(void 0, `ACP connection must be initialized before '${message.method}'`)).then(() => Handled.yes());
+      }
+      const { responder } = message;
+      return Handled.no({
+        ...message,
+        responder: new RequestResponder(responder.id, (result2) => {
+          if ("result" in result2) {
+            initializedConnections.add(cx);
+          }
+          return responder.respondWithResult(result2);
+        }, responder.signal)
+      });
+    },
+    describe: () => "agent-initialization"
+  };
 }
 function emptyObjectResponse(response) {
   return response ?? {};
@@ -9155,6 +9230,9 @@ var methods = {
       setConfigOption: AGENT_METHODS.session_set_config_option,
       prompt: AGENT_METHODS.session_prompt,
       cancel: AGENT_METHODS.session_cancel
+    },
+    mcp: {
+      message: AGENT_METHODS.mcp_message
     }
   },
   client: {
@@ -9172,6 +9250,9 @@ var methods = {
       release: CLIENT_METHODS.terminal_release,
       waitForExit: CLIENT_METHODS.terminal_wait_for_exit,
       kill: CLIENT_METHODS.terminal_kill
+    },
+    mcp: {
+      message: CLIENT_METHODS.mcp_message
     },
     elicitation: {
       create: CLIENT_METHODS.elicitation_create,
@@ -9202,6 +9283,10 @@ var AcpContext = class {
   }
   /** @internal */
   get connectionContext() {
+    return this.cx;
+  }
+  /** @hidden SDK helpers use this to identify the connection. */
+  [connectionContextOf]() {
     return this.cx;
   }
   /** @internal */
@@ -9639,7 +9724,8 @@ var agentRequestSpecs = {
   prompt: requestSpec(AGENT_METHODS.session_prompt, zPromptRequest)
 };
 var agentNotificationSpecs = {
-  cancel: notificationSpec(AGENT_METHODS.session_cancel, zCancelNotification)
+  cancel: notificationSpec(AGENT_METHODS.session_cancel, zCancelNotification),
+  unstable_messageMcp: notificationSpec(AGENT_METHODS.mcp_message, zMessageMcpNotification)
 };
 var clientRequestSpecs = {
   requestPermission: requestSpec(CLIENT_METHODS.session_request_permission, zRequestPermissionRequest),
@@ -9650,7 +9736,8 @@ var clientRequestSpecs = {
   releaseTerminal: requestSpec(CLIENT_METHODS.terminal_release, zReleaseTerminalRequest, emptyObjectResponse),
   waitForTerminalExit: requestSpec(CLIENT_METHODS.terminal_wait_for_exit, zWaitForTerminalExitRequest),
   killTerminal: requestSpec(CLIENT_METHODS.terminal_kill, zKillTerminalRequest, emptyObjectResponse),
-  createElicitation: requestSpec(CLIENT_METHODS.elicitation_create, zCreateElicitationRequest)
+  createElicitation: requestSpec(CLIENT_METHODS.elicitation_create, zCreateElicitationRequest),
+  unstable_messageMcp: requestSpec(CLIENT_METHODS.mcp_message, zMessageMcpRequest)
 };
 var clientNotificationSpecs = {
   sessionUpdate: notificationSpec(CLIENT_METHODS.session_update, zSessionNotification),
@@ -9757,7 +9844,9 @@ var AgentApp = class {
   builder = Connection.builder();
   connectHandlers = [];
   fallbackKinds = /* @__PURE__ */ new Set();
+  hasInitializeHandler = false;
   constructor(options = {}) {
+    this.builder.withHandler(agentInitializationGate(() => this.hasInitializeHandler));
     if (options.name) {
       this.builder.name(options.name);
     }
@@ -9822,6 +9911,9 @@ var AgentApp = class {
     const spec = agentRequestSpecsByMethod[method];
     if (!spec) {
       throw new Error(`Unknown ACP request method '${method}'. Pass a params parser for custom methods.`);
+    }
+    if (method === AGENT_METHODS.initialize) {
+      this.hasInitializeHandler = true;
     }
     return this.request(spec, handlerOrParams);
   }

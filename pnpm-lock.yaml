@@ -197,8 +197,8 @@ importers:
   .:
     devDependencies:
       '@agentclientprotocol/sdk':
-        specifier: 2.0.2
-        version: 2.0.2(zod@4.6.7)
+        specifier: 2.1.0
+        version: 2.1.0(zod@4.6.7)
       '@biomejs/biome':
         specifier: 2.6.3
         version: 2.6.3
@@ -206,11 +206,11 @@ importers:
         specifier: 1.4.0
         version: 1.4.0
       '@openai/codex-sdk':
-        specifier: 0.164.0
-        version: 0.164.0
+        specifier: 0.165.0
+        version: 0.165.0
       '@opencode-ai/sdk':
-        specifier: 1.19.4
-        version: 1.19.4
+        specifier: 1.19.5
+        version: 1.19.5
       '@types/node':
         specifier: 26.6.5
         version: 26.6.5
@@ -226,10 +226,14 @@ importers:
 
 packages:
 
-  '@agentclientprotocol/sdk@2.0.2':
-    resolution: {integrity: sha512-jLywRB42hZMRMc4aUgt0uRjkY9FQnMdybv4XgLl+ddi75QuJn8Vbl0+CHcVHJDC0+WDfi1KQXRWtHaR5vp6gHw==}
+  '@agentclientprotocol/sdk@2.1.0':
+    resolution: {integrity: sha512-IuKjJmHLPzbmbg26eK9Jopd8AVxgLuu8fX114YzYAU6tLYclCo2DUzLL4vbCpYGr9mzvs2T0kigE3ZCueL06tg==}
     peerDependencies:
+      '@modelcontextprotocol/server': ^2.4.0
       zod: ^3.25.76 || ^4.0.0
+    peerDependenciesMeta:
+      '@modelcontextprotocol/server':
+        optional: true
 
   '@biomejs/biome@2.6.3':
     resolution: {integrity: sha512-va/0xPku7wnfzv+D8Zpdm5uKiGJWiV8neqoEPnRjvNQQwhl4tVXS4fETs4H0CCB2rGeqJ4cu9y4iOZOnOYKAUA==}
@@ -474,12 +478,12 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@openai/codex-sdk@0.164.0':
-    resolution: {integrity: sha512-FyhTWM4Xa8hXpWhkr9MOvROVhBqTeD+s/XCzVLzqSQXTSnGSNkdBWjv0IzZdOO29BX4LwtMjul6ogB8tOME5og==}
+  '@openai/codex-sdk@0.165.0':
+    resolution: {integrity: sha512-q5nRFLYOL1Nank+isfrzD/cT2C7kbAIA8iCeucB07dMKUQjnb5x6Ld2SXQIuHad8pqdNVLRXD40aO20mKZglRg==}
     engines: {node: '>=18'}
 
-  '@opencode-ai/sdk@1.19.4':
-    resolution: {integrity: sha512-3Wuc4t8gEuWKHbX1Na9oDK6PgOveid70l4Ks5RCjRIo2RcP8FQN3NS6Mg3XWc2+WiUfpfrmvBWlh5u1zeQfDQw==}
+  '@opencode-ai/sdk@1.19.5':
+    resolution: {integrity: sha512-+bqu8gHiwmq96T9q5G34uLNHWCInIMsrE3hytCNHj1cVaxjY0AGJyNCT1rkeeZwgPU7A5TMTNwN+0XxCO2vqDg==}
 
   '@types/node@26.6.5':
     resolution: {integrity: sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg==}
@@ -640,7 +644,7 @@ packages:
 
 snapshots:
 
-  '@agentclientprotocol/sdk@2.0.2(zod@4.6.7)':
+  '@agentclientprotocol/sdk@2.1.0(zod@4.6.7)':
     dependencies:
       zod: 4.6.7
 
@@ -787,9 +791,9 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@openai/codex-sdk@0.164.0': {}
+  '@openai/codex-sdk@0.165.0': {}
 
-  '@opencode-ai/sdk@1.19.4': {}
+  '@opencode-ai/sdk@1.19.5': {}
 
   '@types/node@26.6.5':
     dependencies:
