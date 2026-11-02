@@ -1,6 +1,6 @@
 import type { TurnStepChunk, TurnStepResult } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { answerCall, CHILD_CALL, pump } from '../hooks/acp/steps'
+import { answerCall, CHILD_CALL, pump, waitStep } from '../hooks/acp/steps'
 import { pi } from '../hooks/adapters/pi'
 import { turnStep } from '../hooks/turn'
 import type { World } from '../hooks/world'
@@ -400,6 +400,9 @@ test('an aborted follow-up leaves no report for a step with no turn to repeat', 
     env: { get: async (name: string) => (name === 'HOME' ? ENV.HOME : undefined) },
     fs: { write: async () => undefined },
     clock: { after: () => ({ cancel: () => {} }) },
+    viaSteps: {
+      wait: ({ agentId, turnId }: { agentId: string; turnId: string }) => waitStep(world, agentId, turnId, () => ({ cancel: () => {} })),
+    },
     process: {
       run: async () => NODE,
       spawn: () => {
@@ -676,7 +679,7 @@ test('an Esc that finds the run parked between steps ends the run, so its harnes
   await Promise.resolve()
   expect(cleaned).toBe(true)
   // A step that still reads the ended run ends the turn, never spins on it.
-  const next = pump(w, job, { turnId: 't1', index: 1, agentId: 'a1' }, new AbortController().signal)
+  const next = pump(w, job, { turnId: 't1', index: 1, agentId: 'a1' }, new AbortController().signal, () => new Promise(() => {}))
   let r = await next.next()
   while (!r.done) r = await next.next()
   expect(r.value.stopReason).toBe('end_turn')

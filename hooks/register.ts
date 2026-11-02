@@ -1,8 +1,8 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { drawCall, drawGroup } from './acp/render'
-import { answerCall, CHILD_CALL, endJob } from './acp/steps'
+import { answerCall, CHILD_CALL, endJob, waitStep } from './acp/steps'
 import type { Adapter } from './adapter'
-import { woken } from './children'
+import { waitChild, woken } from './children'
 import { HARNESSES } from './harnesses'
 import { cachedModels, refreshModels } from './models'
 import { descriptionOf, isModel, promptOf } from './prompt'
@@ -125,6 +125,20 @@ export const register: Register = (on, options) => {
     jobs: new Map(),
     calls: new Map(),
   }
+  // The engine's bounded wait for a run's next chunk (see waitStep). A noun, so the wait is not charged to the hook.
+  on('engine.create', async (_, e, next) => {
+    const built = await next(e)
+    return {
+      ...built,
+      viaSteps: {
+        wait: ({ agentId, turnId }: { agentId: string; turnId: string }) =>
+          waitStep(world, agentId, turnId, (wake) => built.clock.after(5_000, wake)),
+      },
+      viaChildren: {
+        wait: ({ key }: { key: string }) => waitChild(world, key, (wake) => built.clock.after(5_000, wake)),
+      },
+    }
+  })
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     // Best effort: a hook that throws is skipped whole, and the agents below must still register.
