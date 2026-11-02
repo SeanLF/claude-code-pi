@@ -58,7 +58,11 @@ function halted(job: Job): boolean {
 // The job's next chunk. Requested once and shared: a step that stops waiting leaves the same read for the
 // next step or the tool call to take, so the generator advances once per chunk.
 function read(job: Job): Promise<IteratorResult<TurnStepChunk | Mark, TurnStepResult>> {
-  job.reading ??= job.gen.next()
+  // A rejected read is not kept: the next read asks the generator, which has ended, and answers done.
+  job.reading ??= job.gen.next().catch((error: unknown) => {
+    job.reading = undefined
+    throw error
+  })
   return job.reading
 }
 
@@ -129,7 +133,21 @@ export async function* pump(
       } else if (halted(job)) continue
       else {
         // Bounded: the hook answers within its budget. Without a chunk yet, wait again, and the read stays pending.
-        const arrived = await Promise.race([read(job).then(() => true), wait().then(() => false)])
+        const arrived = await Promise.race([
+          read(job).then(() => true),
+          wait().then(
+            () => false,
+            () => undefined,
+          ),
+        ])
+        if (arrived === undefined) {
+          // The engine could not hold the wait: end the step with an explicit answer, never a hook error,
+          // which would send the request to the model without the hooks.
+          job.abort.abort()
+          job.final ??= { ...ended(job.turnId), answer: 'The harness run could not be followed: its wait failed.' }
+          void job.gen.return(undefined as never).catch(() => {})
+          continue
+        }
         if (!arrived) continue
         const r = await read(job)
         job.reading = undefined

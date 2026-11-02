@@ -175,3 +175,23 @@ test('a tool call joins the read an earlier step left pending, in order', async 
   release()
   expect(await answer).toEqual({ result: 'first' })
 })
+
+test('a read that threw is not kept: the next step ends the run instead of throwing the same error again', async () => {
+  const job: steps.Job = {
+    turnId: 't1',
+    count: 0,
+    abort: new AbortController(),
+    outputs: new Map(),
+    held: [],
+    gen: (async function* () {
+      yield* []
+      throw new Error('producer failed')
+    })(),
+  }
+  const world: steps.Steps = { tool: 'mcp__plugin_via_step__step', spawns: new Map(), jobs: new Map([['fixture', job]]), calls: new Map() }
+  const event = { turnId: 't1', index: 0, agentId: 'fixture' }
+  const never = () => new Promise<void>(() => {})
+  await expect(finish(steps.pump(world, job, event, new AbortController().signal, never))).rejects.toThrow('producer failed')
+  const second = await finish(steps.pump(world, job, { ...event, index: 1 }, new AbortController().signal, never))
+  expect(second.stopReason).toBe('end_turn')
+})

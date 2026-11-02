@@ -195,7 +195,7 @@ async function* nestedStep(
   signal: AbortSignal,
 ): AsyncGenerator<TurnStepChunk, TurnStepResult> {
   const job = w.jobs.get(agentId)
-  if (job !== undefined) return yield* pump(w, job, e, signal, joining($, agentId, e.turnId))
+  if (job !== undefined) return yield* pump(w, job, e, signal, joining($, agentId, job.turnId))
   // After its handback, or a later message: the answer again, as text.
   if (nested.report !== undefined) return yield* respond(e, textChunks(nested.report), nested.report)
   const abort = new AbortController()
