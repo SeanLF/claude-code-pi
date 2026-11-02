@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/index.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/index.js
 var AGENT_METHODS = {
   initialize: "initialize",
   authenticate: "authenticate",
@@ -6322,7 +6322,7 @@ function preprocess(fn, schema) {
   });
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/schema-deserialize.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/schema-deserialize.js
 var skippedItem = /* @__PURE__ */ Symbol("skippedItem");
 function defaultOnError(schema, fallback) {
   return schema.catch(fallback);
@@ -6399,9 +6399,17 @@ function defaultOnErrorOptionalStringTag(schema, key) {
 function vecSkipError(itemSchema) {
   return array(itemSchema.catch(skippedItem)).transform((items) => items.filter((item) => item !== skippedItem));
 }
+function defaultOnNull(schema, empty) {
+  return preprocess((value) => value === null ? empty() : value, schema);
+}
+function wideInt() {
+  return number2().refine(Number.isInteger, {
+    error: "Invalid input: expected int, received number"
+  });
+}
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/zod.gen.js
-var zRequestId = union([number2(), string2()]).nullable();
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/zod.gen.js
+var zRequestId = union([wideInt(), string2()]).nullable();
 var zSessionId = string2();
 var zWriteTextFileRequest = object({
   sessionId: zSessionId,
@@ -6469,7 +6477,7 @@ var zResourceLink = object({
   description: defaultOnError(string2().nullish(), () => void 0),
   mimeType: defaultOnError(string2().nullish(), () => void 0),
   name: string2(),
-  size: defaultOnError(number2().nullish(), () => void 0),
+  size: defaultOnError(wideInt().nullish(), () => void 0),
   title: defaultOnError(string2().nullish(), () => void 0),
   uri: string2(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
@@ -6584,10 +6592,10 @@ var zEnvVariable = object({
 var zCreateTerminalRequest = object({
   sessionId: zSessionId,
   command: string2(),
-  args: array(string2()).optional(),
-  env: array(zEnvVariable).optional(),
+  args: defaultOnNull(array(string2()), () => []).optional(),
+  env: defaultOnNull(array(zEnvVariable), () => []).optional(),
   cwd: string2().nullish(),
-  outputByteLimit: number2().nullish(),
+  outputByteLimit: wideInt().gte(0).nullish(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zTerminalOutputRequest = object({
@@ -6657,9 +6665,9 @@ var zNumberPropertySchema = object({
 var zIntegerPropertySchema = object({
   title: defaultOnError(string2().nullish(), () => void 0),
   description: defaultOnError(string2().nullish(), () => void 0),
-  minimum: number2().nullish(),
-  maximum: number2().nullish(),
-  default: defaultOnError(number2().nullish(), () => void 0),
+  minimum: wideInt().nullish(),
+  maximum: wideInt().nullish(),
+  default: defaultOnError(wideInt().nullish(), () => void 0),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zBooleanPropertySchema = object({
@@ -6688,8 +6696,8 @@ var zMultiSelectItems = preserveCustomPayload(union([
 var zMultiSelectPropertySchema = object({
   title: defaultOnError(string2().nullish(), () => void 0),
   description: defaultOnError(string2().nullish(), () => void 0),
-  minItems: number2().nullish(),
-  maxItems: number2().nullish(),
+  minItems: wideInt().gte(0).nullish(),
+  maxItems: wideInt().gte(0).nullish(),
   items: zMultiSelectItems,
   default: defaultOnError(vecSkipError(string2()).nullish(), () => void 0),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
@@ -6863,8 +6871,8 @@ var zAuthMethodTerminal = object({
   id: zAuthMethodId,
   name: string2(),
   description: defaultOnError(string2().nullish(), () => void 0),
-  args: array(string2()).optional(),
-  env: record(string2(), string2()).optional(),
+  args: defaultOnNull(array(string2()), () => []).optional(),
+  env: defaultOnNull(record(string2(), string2()), () => ({})).optional(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zAuthMethodAgent = object({
@@ -7072,12 +7080,12 @@ var zStopReason = union([
   literal("cancelled")
 ]);
 var zUsage = object({
-  totalTokens: number2(),
-  inputTokens: number2(),
-  outputTokens: number2(),
-  thoughtTokens: defaultOnError(number2().nullish(), () => void 0),
-  cachedReadTokens: defaultOnError(number2().nullish(), () => void 0),
-  cachedWriteTokens: defaultOnError(number2().nullish(), () => void 0),
+  totalTokens: wideInt().gte(0),
+  inputTokens: wideInt().gte(0),
+  outputTokens: wideInt().gte(0),
+  thoughtTokens: defaultOnError(wideInt().gte(0).nullish(), () => void 0),
+  cachedReadTokens: defaultOnError(wideInt().gte(0).nullish(), () => void 0),
+  cachedWriteTokens: defaultOnError(wideInt().gte(0).nullish(), () => void 0),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zPromptResponse = object({
@@ -7241,8 +7249,8 @@ var zCost = object({
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zUsageUpdate = object({
-  used: number2(),
-  size: number2(),
+  used: wideInt().gte(0),
+  size: wideInt().gte(0),
   cost: defaultOnError(zCost.nullish(), () => void 0),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
@@ -7364,19 +7372,21 @@ var zSubagentUpdate = object({
   description: defaultOnError(string2().nullish(), () => void 0),
   capabilities: defaultOnError(zSubagentSessionCapabilities.nullish(), () => void 0),
   state: defaultOnError(zStateUpdate.nullish(), () => void 0),
+  cwd: string2().nullish(),
+  additionalDirectories: array(string2()).nullish(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zSessionMessage = object({
   messageId: zMessageId,
   senderSessionId: defaultOnError(zSessionId.nullish(), () => void 0),
   recipientSessionId: defaultOnError(zSessionId.nullish(), () => void 0),
+  senderMessageId: defaultOnError(zMessageId.nullish(), () => void 0),
+  recipientMessageId: defaultOnError(zMessageId.nullish(), () => void 0),
   content: defaultOnError(vecSkipError(zContentBlock).nullish(), () => void 0),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zSessionMessageChunk = object({
   messageId: zMessageId,
-  senderSessionId: defaultOnError(zSessionId.nullish(), () => void 0),
-  recipientSessionId: defaultOnError(zSessionId.nullish(), () => void 0),
   content: zContentBlock,
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
@@ -7551,13 +7561,13 @@ var zHttpHeader = object({
 var zMcpServerHttp = object({
   name: string2(),
   url: string2(),
-  headers: array(zHttpHeader),
+  headers: defaultOnNull(array(zHttpHeader), () => []),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zMcpServerSse = object({
   name: string2(),
   url: string2(),
-  headers: array(zHttpHeader),
+  headers: defaultOnNull(array(zHttpHeader), () => []),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zMcpServerAcp = object({
@@ -7568,8 +7578,8 @@ var zMcpServerAcp = object({
 var zMcpServerStdio = object({
   name: string2(),
   command: string2(),
-  args: array(string2()),
-  env: array(zEnvVariable),
+  args: defaultOnNull(array(string2()), () => []),
+  env: defaultOnNull(array(zEnvVariable), () => []),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zMcpServer = union([
@@ -7596,15 +7606,15 @@ var zSystemPrompt = object({
 });
 var zNewSessionRequest = object({
   cwd: string2(),
-  additionalDirectories: array(string2()).optional(),
-  mcpServers: array(zMcpServer),
+  additionalDirectories: defaultOnNull(array(string2()), () => []).optional(),
+  mcpServers: defaultOnNull(array(zMcpServer), () => []),
   systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zLoadSessionRequest = object({
-  mcpServers: array(zMcpServer),
+  mcpServers: defaultOnNull(array(zMcpServer), () => []),
   cwd: string2(),
-  additionalDirectories: array(string2()).optional(),
+  additionalDirectories: defaultOnNull(array(string2()), () => []).optional(),
   sessionId: zSessionId,
   systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
@@ -7621,16 +7631,16 @@ var zDeleteSessionRequest = object({
 var zForkSessionRequest = object({
   sessionId: zSessionId,
   cwd: string2(),
-  additionalDirectories: array(string2()).optional(),
-  mcpServers: array(zMcpServer).optional(),
+  additionalDirectories: defaultOnNull(array(string2()), () => []).optional(),
+  mcpServers: defaultOnNull(array(zMcpServer), () => []).optional(),
   systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zResumeSessionRequest = object({
   sessionId: zSessionId,
   cwd: string2(),
-  additionalDirectories: array(string2()).optional(),
-  mcpServers: array(zMcpServer).optional(),
+  additionalDirectories: defaultOnNull(array(string2()), () => []).optional(),
+  mcpServers: defaultOnNull(array(zMcpServer), () => []).optional(),
   systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
@@ -7645,8 +7655,8 @@ var zSetSessionModeRequest = object({
 });
 var zSetSessionConfigOptionRequest = intersection(union([
   object({
-    value: boolean2(),
-    type: literal("boolean")
+    type: literal("boolean"),
+    value: boolean2()
   }),
   object({
     value: zSessionConfigValueId
@@ -7739,7 +7749,7 @@ var zKillTerminalResponse = object({
 });
 var zElicitationContentValue = union([
   string2(),
-  number2(),
+  wideInt(),
   number2(),
   boolean2(),
   array(string2())
@@ -7824,8 +7834,19 @@ var zCancelRequestNotification = object({
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/jsonrpc.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/jsonrpc.js
 var CANCEL_REQUEST_METHOD = "$/cancel_request";
+function treatSessionNotFoundAsSuccess(method, response, success) {
+  if (method !== "session/close" && method !== "session/delete") {
+    return response;
+  }
+  return response.catch((error2) => {
+    if (error2 instanceof RequestError && error2.code === -32002) {
+      return success();
+    }
+    throw error2;
+  });
+}
 function isRequestMessage(value) {
   return isJsonRpcEnvelope(value) && "id" in value && typeof value["method"] === "string" && isJsonRpcId(value["id"]);
 }
@@ -7857,28 +7878,6 @@ function isJsonRpcId(value) {
 }
 function isResponseShapedMessage(value) {
   return isRecord(value) && !("method" in value) && ("id" in value || "result" in value || "error" in value);
-}
-function isResponseBatch(batch) {
-  let hasValidCall = false;
-  let hasValidResponse = false;
-  let hasCallShape = false;
-  let hasResponseShape = false;
-  for (const entry of batch) {
-    hasValidCall ||= isRequestMessage(entry) || isNotificationMessage(entry);
-    hasValidResponse ||= isResponseMessage(entry);
-    if (!isRecord(entry)) {
-      continue;
-    }
-    hasCallShape ||= "method" in entry;
-    hasResponseShape ||= "result" in entry || "error" in entry;
-  }
-  if (hasValidCall) {
-    return false;
-  }
-  if (hasValidResponse) {
-    return true;
-  }
-  return hasResponseShape && !hasCallShape;
 }
 function cancelRequestId(params) {
   if (!isRecord(params) || !isJsonRpcId(params["requestId"])) {
@@ -7920,6 +7919,15 @@ function errorDetails(error2) {
 }
 function isZodError(error2) {
   return typeof error2 === "object" && error2 !== null && "name" in error2 && error2.name === "ZodError" && "issues" in error2 && Array.isArray(error2.issues) && "format" in error2 && typeof error2.format === "function";
+}
+function describeInvalidMessage(message) {
+  if (Array.isArray(message)) {
+    return { type: "array" };
+  }
+  if (isRecord(message)) {
+    return { type: "object", keys: Object.keys(message) };
+  }
+  return { type: message === null ? "null" : typeof message };
 }
 function errorToResult(error2) {
   if (error2 instanceof RequestError) {
@@ -8002,7 +8010,7 @@ var RequestResponder = class {
     });
   }
 };
-var requestBatchSizes = /* @__PURE__ */ new WeakMap();
+var nullIdResponders = /* @__PURE__ */ new WeakSet();
 var HandlerRegistration = class {
   disposeHandler;
   active = true;
@@ -8050,12 +8058,6 @@ var ConnectionContext = class {
     return this.connection.sendNotification(method, params);
   }
   /**
-   * Sends a non-empty JSON-RPC batch in one transport message.
-   */
-  sendBatch(entries) {
-    return this.connection.sendBatch(entries);
-  }
-  /**
    * Sends a protocol-level request cancellation notification.
    */
   sendCancelRequest(requestId) {
@@ -8094,7 +8096,6 @@ var Connection = class {
   retryQueue = [];
   context = new ConnectionContext(this);
   receiveReader;
-  allowBatches = true;
   constructor(requestHandlerOrStream, notificationHandlerOrHandlers, streamOrOptions, options) {
     if (typeof requestHandlerOrStream === "function") {
       const requestHandler = requestHandlerOrStream;
@@ -8184,63 +8185,13 @@ var Connection = class {
       return rejectedPromise(this.closedReason());
     }
     const request = this.prepareRequest(method, params, mapResponse, options);
-    const requestSent = this.sendWireMessage(request.message);
+    const requestSent = this.sendMessage(request.message);
     void requestSent.catch(() => {
     });
     if (options.cancellationSignal?.aborted) {
       request.cancel();
     }
     return request.response;
-  }
-  /**
-   * Sends a non-empty JSON-RPC batch in one transport message.
-   *
-   * Requests and notifications are processed independently by the peer. The
-   * returned tuple preserves the input order: request entries resolve to their
-   * mapped response, while notification entries resolve to `undefined`.
-   */
-  sendBatch(entries) {
-    if (this.abortController.signal.aborted) {
-      return rejectedPromise(this.closedReason());
-    }
-    if (!this.allowBatches) {
-      return rejectedPromise(new TypeError("JSON-RPC batches are not supported on this connection"));
-    }
-    if (entries.length === 0) {
-      return rejectedPromise(new TypeError("JSON-RPC batch must contain at least one entry"));
-    }
-    const messages = [];
-    const cancellations = [];
-    const outputs = [];
-    for (const entry of entries) {
-      if (entry.kind === "notification") {
-        messages.push({
-          jsonrpc: "2.0",
-          method: entry.method,
-          params: entry.params
-        });
-        outputs.push(Promise.resolve(void 0));
-        continue;
-      }
-      const request = this.prepareRequest(entry.method, entry.params, entry.mapResponse, entry.options);
-      messages.push(request.message);
-      outputs.push(request.response);
-      cancellations.push({
-        signal: entry.options?.cancellationSignal,
-        cancel: request.cancel
-      });
-    }
-    const batch = messages;
-    const batchSent = this.sendWireMessage(batch);
-    for (const cancellation of cancellations) {
-      if (cancellation.signal?.aborted) {
-        cancellation.cancel();
-      }
-    }
-    const response = Promise.all([batchSent, ...outputs]).then(([, ...resolved]) => resolved);
-    response.catch(() => {
-    });
-    return response;
   }
   /**
    * Sends a protocol-level request cancellation notification.
@@ -8255,7 +8206,7 @@ var Connection = class {
     if (this.abortController.signal.aborted) {
       return rejectedPromise(this.closedReason());
     }
-    return this.sendWireMessage({ jsonrpc: "2.0", method, params });
+    return this.sendMessage({ jsonrpc: "2.0", method, params });
   }
   prepareRequest(method, params, mapResponse, options = {}) {
     const id = this.nextRequestId++;
@@ -8322,7 +8273,6 @@ var Connection = class {
     this.stream = stream2;
     this.staticHandlers = handlers;
     this.fallbackHandlers = [...options?.fallbackHandlers ?? []];
-    this.allowBatches = options?.allowBatches ?? true;
     this.closedPromise = new Promise((resolve) => {
       this.abortController.signal.addEventListener("abort", () => resolve());
     });
@@ -8355,7 +8305,7 @@ var Connection = class {
           if (done) {
             break;
           }
-          this.receiveWireMessage(message);
+          this.receiveUnvalidatedMessage(message);
         }
       } finally {
         if (this.receiveReader === reader) {
@@ -8369,84 +8319,36 @@ var Connection = class {
       this.close(closeError);
     }
   }
-  receiveWireMessage(message) {
+  receiveUnvalidatedMessage(message) {
     if (Array.isArray(message)) {
-      if (!this.allowBatches) {
-        this.close(new TypeError("JSON-RPC batches are not supported on this connection"));
-        return;
-      }
-      this.receiveBatch(message);
+      void this.sendMessage(protocolErrorResponse(RequestError.invalidRequest(void 0, "JSON-RPC batches are not supported"))).catch(() => {
+      });
       return;
     }
     if (!isRequestMessage(message) && !isNotificationMessage(message) && !isResponseShapedMessage(message)) {
-      void this.sendWireMessage(protocolErrorResponse(RequestError.invalidRequest(message))).catch(() => {
+      void this.sendMessage(protocolErrorResponse(RequestError.invalidRequest(message))).catch(() => {
       });
       return;
     }
     this.receiveMessage(message);
   }
-  receiveBatch(batch) {
-    if (batch.length === 0) {
-      void this.sendWireMessage(protocolErrorResponse(RequestError.invalidRequest(batch))).catch(() => {
-      });
-      return;
-    }
-    const responseBatch = isResponseBatch(batch);
-    const responseCount = responseBatch ? 0 : batch.reduce((count, message) => count + (isNotificationMessage(message) ? 0 : 1), 0);
-    let remaining = responseCount;
-    let remainingNotifications = batch.reduce((count, message) => count + (isNotificationMessage(message) ? 1 : 0), 0);
-    let responseSent = false;
-    const responses = [];
-    const sendResponsesIfReady = async () => {
-      if (responseSent || remaining !== 0 || remainingNotifications !== 0 || responses.length === 0) {
-        return;
-      }
-      responseSent = true;
-      await this.sendWireMessage(responses);
-    };
-    const collectResponse = async (response) => {
-      responses.push(response);
-      remaining -= 1;
-      await sendResponsesIfReady();
-    };
-    for (const message of batch) {
-      if (responseBatch) {
-        if (isResponseShapedMessage(message)) {
-          this.receiveMessage(message);
-        }
-        continue;
-      }
-      if (!isRequestMessage(message) && !isNotificationMessage(message)) {
-        void collectResponse(protocolErrorResponse(RequestError.invalidRequest(message))).catch(() => {
-        });
-        continue;
-      }
-      const processing = this.receiveMessage(message, isRequestMessage(message) ? collectResponse : void 0, batch.length);
-      if (isNotificationMessage(message)) {
-        void processing.finally(() => {
-          remainingNotifications -= 1;
-          void sendResponsesIfReady().catch((error2) => this.close(error2));
-        });
-      }
-    }
-  }
-  receiveMessage(message, sendResponse, batchSize) {
+  receiveMessage(message) {
     if (this.abortController.signal.aborted) {
       return Promise.resolve();
     }
     if (!isRecord(message)) {
-      console.error("Invalid message", { message });
+      console.error("Invalid message", describeInvalidMessage(message));
       return Promise.resolve();
     }
     if ("method" in message) {
       if (!("id" in message)) {
         this.handleProtocolNotification(message);
       }
-      return this.processIncomingMessage(this.toIncomingMessage(message, sendResponse, batchSize)).catch((error2) => this.close(error2));
+      return this.processIncomingMessage(this.toIncomingMessage(message)).catch((error2) => this.close(error2));
     } else if ("id" in message) {
       this.handleResponse(message);
     } else {
-      console.error("Invalid message", { message });
+      console.error("Invalid message", describeInvalidMessage(message));
     }
     return Promise.resolve();
   }
@@ -8488,12 +8390,16 @@ var Connection = class {
       } else {
         const response = errorToResult(error2);
         if ("error" in response) {
-          console.error("Error handling notification", message.raw, response.error);
+          console.error("Error handling notification", {
+            method: message.method,
+            code: response.error.code,
+            message: response.error.message
+          });
         }
       }
     }
   }
-  toIncomingMessage(message, sendResponse, batchSize) {
+  toIncomingMessage(message) {
     if ("id" in message) {
       const abortController = new AbortController();
       this.incomingRequests.set(message.id, abortController);
@@ -8505,14 +8411,11 @@ var Connection = class {
       const responder = new RequestResponder(message.id, (result2) => {
         const response = {
           jsonrpc: "2.0",
-          id: message.id,
+          id: nullIdResponders.has(responder) ? null : message.id,
           ...result2
         };
-        return sendResponse ? sendResponse(response) : this.sendWireMessage(response);
+        return this.sendMessage(response);
       }, abortController.signal, finishRequest);
-      if (batchSize !== void 0) {
-        requestBatchSizes.set(responder, batchSize);
-      }
       return {
         kind: "request",
         method: message.method,
@@ -8563,7 +8466,7 @@ var Connection = class {
   closedReason() {
     return this.abortController.signal.reason ?? new Error("ACP connection closed");
   }
-  async sendWireMessage(message) {
+  async sendMessage(message) {
     if (this.abortController.signal.aborted) {
       return rejectedPromise(this.closedReason());
     }
@@ -8728,11 +8631,33 @@ var RequestError = class _RequestError extends Error {
     return new _RequestError(-32e3, `Authentication required${additionalMessage ? `: ${additionalMessage}` : ""}`, data);
   }
   /**
-   * Resource, such as a file, was not found
+   * A referenced resource, such as a session or file, does not exist.
+   *
+   * For an unknown or inactive session, prefer
+   * {@link RequestError.sessionNotFound}, which sets `data.sessionId` as the
+   * protocol expects.
    */
   static resourceNotFound(uri) {
     return new _RequestError(-32002, `Resource not found${uri ? `: ${uri}` : ""}`, uri && { uri });
   }
+  /**
+   * The session named by a session-scoped request does not exist or is not
+   * active on this connection.
+   *
+   * Produces a `-32002` (Resource not found) error with `data.sessionId` set
+   * to the requested session ID.
+   */
+  static sessionNotFound(sessionId) {
+    return new _RequestError(-32002, "Resource not found", {
+      sessionId
+    });
+  }
+  /**
+   * No supported protocol version is at or below the requested version.
+   *
+   * Produces a `-32022` error whose data lists the `requested` version and the
+   * `supported` versions.
+   */
   static unsupportedProtocolVersion(requested, supported) {
     return new _RequestError(-32022, "Unsupported protocol version", {
       requested,
@@ -8770,7 +8695,7 @@ function protocolErrorResponse(error2) {
   };
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream-limits.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream-limits.js
 var DEFAULT_MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
 var MessageTooLargeError = class extends Error {
   maxMessageBytes;
@@ -8829,7 +8754,7 @@ var MessageBuffer = class {
   }
 };
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/line-buffer.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/line-buffer.js
 var newline = 10;
 var carriageReturn = 13;
 var LineBuffer = class {
@@ -8916,7 +8841,7 @@ function stripCarriageReturn(line) {
   return line[line.byteLength - 1] === carriageReturn ? line.subarray(0, -1) : line;
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream.js
 function ndJsonStream(output, input, options = {}) {
   const maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes);
   const textEncoder = new TextEncoder();
@@ -8953,7 +8878,9 @@ function ndJsonStream(output, input, options = {}) {
           await writeJson(protocolErrorResponse(RequestError.parseError()));
           return;
         }
-        if (isRecord(message) || Array.isArray(message)) {
+        if (Array.isArray(message)) {
+          await writeJson(protocolErrorResponse(RequestError.invalidRequest(void 0, "JSON-RPC batches are not supported")));
+        } else if (isRecord(message)) {
           controller.enqueue(message);
         } else {
           await writeJson(protocolErrorResponse(RequestError.invalidRequest(message)));
@@ -9020,7 +8947,7 @@ function ndJsonStream(output, input, options = {}) {
   return { readable, writable };
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/guards.gen.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/guards.gen.js
 var zGuardCreateElicitationRequestForm = zElicitationFormMode.and(object({ mode: literal("form") })).and(object({ message: string2() }));
 var zGuardCreateElicitationRequestUrl = zElicitationUrlMode.and(object({ mode: literal("url") })).and(object({ message: string2() }));
 var zGuardCreateElicitationRequestCustom = union([zElicitationSessionScope, zElicitationRequestScope]).and(object({ message: string2() }));
@@ -9059,7 +8986,7 @@ var zGuardCreateElicitationResponseCancel = object({
   action: literal("cancel")
 });
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/app-handlers.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/app-handlers.js
 function parseParams(parser, params) {
   if (!parser) {
     return params;
@@ -9074,8 +9001,8 @@ function registerAppRequest(builder, spec, context, handler, serializeResponse, 
     try {
       const response = await handler(context(params, cx, responder.signal, responder.id, method));
       const sentResponse = serializeResponse ? serializeResponse(response) : response;
+      lifecycle?.beforeResponse(params, sentResponse, cx);
       await responder.respond(sentResponse);
-      lifecycle?.afterResponse(params, sentResponse, cx);
     } catch (error2) {
       lifecycle?.onError(cx, error2);
       throw error2;
@@ -9109,9 +9036,36 @@ function registerAppNotification(builder, spec, context, handler) {
   }
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.0.2_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/acp.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/connection-access.js
+var connectionContextOf = /* @__PURE__ */ Symbol("connectionContextOf");
+
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/acp.js
 function ndJsonStream2(output, input, options) {
   return ndJsonStream(output, input, options);
+}
+var initializedConnections = /* @__PURE__ */ new WeakSet();
+function agentInitializationGate(enabled) {
+  return {
+    handleMessage(message, cx) {
+      if (message.kind !== "request" || !enabled() || initializedConnections.has(cx)) {
+        return Handled.no(message);
+      }
+      if (message.method !== AGENT_METHODS.initialize) {
+        return message.responder.respondWithError(RequestError.invalidRequest(void 0, `ACP connection must be initialized before '${message.method}'`)).then(() => Handled.yes());
+      }
+      const { responder } = message;
+      return Handled.no({
+        ...message,
+        responder: new RequestResponder(responder.id, (result2) => {
+          if ("result" in result2) {
+            initializedConnections.add(cx);
+          }
+          return responder.respondWithResult(result2);
+        }, responder.signal)
+      });
+    },
+    describe: () => "agent-initialization"
+  };
 }
 function emptyObjectResponse(response) {
   return response ?? {};
@@ -9155,6 +9109,9 @@ var methods = {
       setConfigOption: AGENT_METHODS.session_set_config_option,
       prompt: AGENT_METHODS.session_prompt,
       cancel: AGENT_METHODS.session_cancel
+    },
+    mcp: {
+      message: AGENT_METHODS.mcp_message
     }
   },
   client: {
@@ -9172,6 +9129,9 @@ var methods = {
       release: CLIENT_METHODS.terminal_release,
       waitForExit: CLIENT_METHODS.terminal_wait_for_exit,
       kill: CLIENT_METHODS.terminal_kill
+    },
+    mcp: {
+      message: CLIENT_METHODS.mcp_message
     },
     elicitation: {
       create: CLIENT_METHODS.elicitation_create,
@@ -9202,6 +9162,10 @@ var AcpContext = class {
   }
   /** @internal */
   get connectionContext() {
+    return this.cx;
+  }
+  /** @hidden SDK helpers use this to identify the connection. */
+  [connectionContextOf]() {
     return this.cx;
   }
   /** @internal */
@@ -9290,7 +9254,7 @@ var ClientContext = class _ClientContext extends AcpContext {
   }
   request(method, params, options) {
     const spec = agentRequestSpecsByMethod[method];
-    return this.sendRequest(method, params, spec?.mapResponse, options);
+    return treatSessionNotFoundAsSuccess(method, this.sendRequest(method, params, spec?.mapResponse, options), () => spec?.mapResponse ? spec.mapResponse({}) : {});
   }
   notify(method, params) {
     return this.sendNotification(method, params);
@@ -9639,7 +9603,8 @@ var agentRequestSpecs = {
   prompt: requestSpec(AGENT_METHODS.session_prompt, zPromptRequest)
 };
 var agentNotificationSpecs = {
-  cancel: notificationSpec(AGENT_METHODS.session_cancel, zCancelNotification)
+  cancel: notificationSpec(AGENT_METHODS.session_cancel, zCancelNotification),
+  unstable_messageMcp: notificationSpec(AGENT_METHODS.mcp_message, zMessageMcpNotification)
 };
 var clientRequestSpecs = {
   requestPermission: requestSpec(CLIENT_METHODS.session_request_permission, zRequestPermissionRequest),
@@ -9650,7 +9615,8 @@ var clientRequestSpecs = {
   releaseTerminal: requestSpec(CLIENT_METHODS.terminal_release, zReleaseTerminalRequest, emptyObjectResponse),
   waitForTerminalExit: requestSpec(CLIENT_METHODS.terminal_wait_for_exit, zWaitForTerminalExitRequest),
   killTerminal: requestSpec(CLIENT_METHODS.terminal_kill, zKillTerminalRequest, emptyObjectResponse),
-  createElicitation: requestSpec(CLIENT_METHODS.elicitation_create, zCreateElicitationRequest)
+  createElicitation: requestSpec(CLIENT_METHODS.elicitation_create, zCreateElicitationRequest),
+  unstable_messageMcp: requestSpec(CLIENT_METHODS.mcp_message, zMessageMcpRequest)
 };
 var clientNotificationSpecs = {
   sessionUpdate: notificationSpec(CLIENT_METHODS.session_update, zSessionNotification),
@@ -9752,12 +9718,13 @@ function runConnectHandlers(connection, handlers) {
 var appBuilder = /* @__PURE__ */ Symbol("appBuilder");
 var runAgentConnectHandlers = /* @__PURE__ */ Symbol("runAgentConnectHandlers");
 var runClientConnectHandlers = /* @__PURE__ */ Symbol("runClientConnectHandlers");
-var stableConnectionOptions = { allowBatches: false };
 var AgentApp = class {
   builder = Connection.builder();
   connectHandlers = [];
   fallbackKinds = /* @__PURE__ */ new Set();
+  hasInitializeHandler = false;
   constructor(options = {}) {
+    this.builder.withHandler(agentInitializationGate(() => this.hasInitializeHandler));
     if (options.name) {
       this.builder.name(options.name);
     }
@@ -9823,6 +9790,9 @@ var AgentApp = class {
     if (!spec) {
       throw new Error(`Unknown ACP request method '${method}'. Pass a params parser for custom methods.`);
     }
+    if (method === AGENT_METHODS.initialize) {
+      this.hasInitializeHandler = true;
+    }
     return this.request(spec, handlerOrParams);
   }
   onNotification(method, handlerOrParams, handler) {
@@ -9860,7 +9830,7 @@ var AgentApp = class {
       return state2;
     }
     const [thisStream, peerStream] = memoryStreamPair();
-    const peerRawConnection = target[appBuilder]().connect(peerStream, stableConnectionOptions);
+    const peerRawConnection = target[appBuilder]().connect(peerStream);
     const peerConnection = clientConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
     void state.rawConnection.closed.then(() => peerConnection.close());
@@ -9876,7 +9846,7 @@ var AgentApp = class {
     return state;
   }
   openStreamConnection(stream2) {
-    const rawConnection = this.builder.connect(stream2, stableConnectionOptions);
+    const rawConnection = this.builder.connect(stream2);
     return {
       rawConnection,
       connection: agentConnection(rawConnection, this.connectHandlers)
@@ -9981,7 +9951,7 @@ var ClientApp = class {
       return state2;
     }
     const [thisStream, peerStream] = memoryStreamPair();
-    const peerRawConnection = target[appBuilder]().connect(peerStream, stableConnectionOptions);
+    const peerRawConnection = target[appBuilder]().connect(peerStream);
     const peerConnection = agentConnection(peerRawConnection);
     const state = this.openStreamConnection(thisStream);
     void state.rawConnection.closed.then(() => peerConnection.close());
@@ -9997,7 +9967,7 @@ var ClientApp = class {
     return state;
   }
   openStreamConnection(stream2) {
-    const rawConnection = this.builder.connect(stream2, stableConnectionOptions);
+    const rawConnection = this.builder.connect(stream2);
     return {
       rawConnection,
       connection: clientConnection(rawConnection, this.connectHandlers)
