@@ -279,7 +279,7 @@ async function loop(job: Job): Promise<void> {
       }
       job.reading = undefined
       if (r.done) {
-        job.final = r.value
+        job.final ??= r.value ?? ended(job.turnId)
         break
       }
       if (r.value.kind === 'call-end') job.outputs.set(r.value.id, { output: r.value.output, failed: r.value.failed })
