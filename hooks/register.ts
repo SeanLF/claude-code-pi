@@ -294,6 +294,9 @@ export const register: Register = (on, options) => {
     answerCall(world, e.tool_use_id, next.signal, {
       sleep: (ms) => $.viaSteps.sleep({ ms }),
       submit: (text) => $.prompt.submit({ text }),
+      log: async (text) => {
+        $.ui.log(text)
+      },
     }),
   ).catch(() => ({
     deny: 'via could not report this harness tool call.',
