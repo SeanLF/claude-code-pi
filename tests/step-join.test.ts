@@ -198,3 +198,43 @@ test('a read that threw ends its step with an explicit answer, and is not kept',
   const second = await finish(steps.pump(world, job, { ...event, index: 1 }, new AbortController().signal, never))
   expect(second.stopReason).toBe('end_turn')
 })
+
+test('a tool call still running past its hold answers at once, and its output is submitted when the run finishes', async () => {
+  let release = () => {}
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const job: steps.Job = {
+    turnId: 't1',
+    count: 0,
+    abort: new AbortController(),
+    outputs: new Map(),
+    held: [],
+    gen: (async function* () {
+      await pending
+      yield { kind: 'call-end' as const, id: 'one', output: 'build passed', failed: false }
+      return { turnId: 't1', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null }
+    })(),
+  }
+  const world: steps.Steps = {
+    tool: 'mcp__plugin_via_step__step',
+    spawns: new Map(),
+    jobs: new Map([['fixture', job]]),
+    calls: new Map([['toolu_one', { agentId: 'fixture', id: 'one' }]]),
+  }
+  const submitted: string[] = []
+  const first = await steps.answerCall(world, 'toolu_one', new AbortController().signal, {
+    sleep: () => Promise.resolve(),
+    submit: async (text) => {
+      submitted.push(text)
+      return {}
+    },
+  })
+  expect(first).toEqual({ result: 'The harness is still running this call; its output will arrive as a new message.' })
+  expect(submitted).toEqual([])
+  release()
+  await settle()
+  await settle()
+  expect(submitted).toEqual(['The harness command finished:\nbuild passed'])
+  expect(job.collecting).toBeUndefined()
+})

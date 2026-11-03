@@ -27,6 +27,17 @@ export type Job = {
   count: number
   // The generator's next chunk, requested and not yet taken. A step that stops waiting leaves it here.
   reading?: Promise<IteratorResult<TurnStepChunk | Mark, TurnStepResult>>
+  // A tool call that outlived its hook: a background collector reads the run until the call ends, and
+  // pump serves what it queues. While it runs, nothing else reads the generator.
+  collecting?: Promise<unknown>
+  wake?: () => void
+}
+
+// Tells pump that the collector queued something or finished.
+function woken(job: Job): void {
+  const wake = job.wake
+  job.wake = undefined
+  wake?.()
 }
 
 // The plugin's tool, by its registered name, and the runs and calls in flight.
@@ -134,7 +145,17 @@ export async function* pump(
         if (w.jobs.get(e.agentId ?? '') === job) w.jobs.delete(e.agentId ?? '')
         return { ...job.final, turnId: e.turnId, index: e.index }
       } else if (halted(job)) continue
-      else {
+      else if (job.collecting !== undefined) {
+        // Waits through the engine, not the hook: a raw wait here would be charged to the hook's budget.
+        // The collector's read is in flight, so the bounded wait shares it.
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            job.wake = resolve
+          }),
+          wait(),
+        ])
+        continue
+      } else {
         // Bounded: the hook answers within its budget. Without a chunk yet, wait again, and the read stays pending.
         // A failed read or wait ends the step with an explicit answer (below), never a hook error, which
         // would send the request to the model without the hooks.
@@ -207,42 +228,82 @@ export async function* pump(
 
 // The tool.call hook on the plugin's tool: reads the run on until the harness finishes this call, keeping
 // whatever else it says for the next step. Never runs anything itself.
+// Reads the run until the call's output is known. Chunks the call doesn't own are queued for pump.
+async function collect(job: Job, id: string): Promise<{ output: string; failed: boolean } | undefined> {
+  for (;;) {
+    const done = job.outputs.get(id)
+    if (done !== undefined) return done
+    if (job.final !== undefined || halted(job)) return undefined
+    let r: IteratorResult<TurnStepChunk | Mark, TurnStepResult>
+    try {
+      r = await read(job)
+    } catch {
+      job.abort.abort()
+      job.final ??= { ...ended(job.turnId), answer: NOT_FOLLOWED }
+      woken(job)
+      return undefined
+    }
+    job.reading = undefined
+    if (r.done) {
+      job.final = r.value
+      woken(job)
+      return undefined
+    }
+    if (r.value.kind === 'call-end') job.outputs.set(r.value.id, { output: r.value.output, failed: r.value.failed })
+    else job.held.push(r.value)
+    woken(job)
+  }
+}
+
+// How long a tool call holds its hook before it answers "still running". Under the hook's ten-second budget.
+export const CALL_HOLD_MS = 8_000
+
+// The tool.call hook on the plugin's tool. Answers with the call's output when the harness finishes it within
+// CALL_HOLD_MS. Past that, it answers "still running" at once, and a background collector submits the output
+// as a new prompt when the call ends (handoff: the engine's bounded sleep and the prompt submitter).
 export async function answerCall(
   w: Steps,
   toolUseId: string | undefined,
   signal: AbortSignal,
+  handoff?: { sleep: (ms: number) => Promise<void>; submit: (text: string) => Promise<unknown> },
 ): Promise<{ result: string; isError?: true } | { deny: string }> {
   const ref = toolUseId === undefined ? undefined : w.calls.get(toolUseId)
   const job = ref === undefined ? undefined : w.jobs.get(ref.agentId)
   if (ref === undefined || job === undefined)
     return { deny: 'This tool only reports a tool call an agent harness made; it does nothing when called.' }
+  const finished = (done: { output: string; failed: boolean }) => {
+    w.calls.delete(toolUseId as string)
+    return done.failed ? { result: done.output || 'failed', isError: true as const } : { result: done.output || NO_OUTPUT }
+  }
+  if (job.collecting !== undefined) return { result: 'The harness is still running this call; its output will arrive as a new message.' }
   const unlend = lend(job, signal)
+  const pending = collect(job, ref.id)
+  if (handoff === undefined) {
+    try {
+      const done = await pending
+      if (done === undefined) return { result: 'The harness run ended before this call finished.' }
+      return finished(done)
+    } finally {
+      unlend()
+    }
+  }
   try {
-    for (;;) {
-      const done = job.outputs.get(ref.id)
-      if (done !== undefined) {
-        w.calls.delete(toolUseId as string)
-        return done.failed ? { result: done.output || 'failed', isError: true } : { result: done.output || NO_OUTPUT }
-      }
-      if (job.final !== undefined || halted(job)) return { result: 'The harness run ended before this call finished.' }
-      let r: IteratorResult<TurnStepChunk | Mark, TurnStepResult>
-      try {
-        r = await read(job)
-      } catch {
-        // The producer failed: end the run and answer the call, rather than fail the tool-call hook.
-        job.abort.abort()
-        job.final ??= { ...ended(job.turnId), answer: NOT_FOLLOWED }
-        return { result: NOT_FOLLOWED }
-      }
-      job.reading = undefined
-      if (r.done) {
-        job.final = r.value
-        continue
-      }
-      if (r.value.kind === 'call-end') job.outputs.set(r.value.id, { output: r.value.output, failed: r.value.failed })
-      else job.held.push(r.value)
+    const first = await Promise.race([pending, handoff.sleep(CALL_HOLD_MS).then(() => 'held' as const)])
+    if (first !== 'held') {
+      if (first === undefined) return { result: 'The harness run ended before this call finished.' }
+      return finished(first)
     }
   } finally {
     unlend()
   }
+  // Still running past the hold: the collector takes the read and submits the output when the call ends.
+  job.collecting = pending.then(async (done) => {
+    job.collecting = undefined
+    woken(job)
+    w.calls.delete(toolUseId as string)
+    if (done === undefined) return
+    const text = done.failed ? `The harness command failed:\n${done.output}` : `The harness command finished:\n${done.output || NO_OUTPUT}`
+    await handoff.submit(text)
+  })
+  return { result: 'The harness is still running this call; its output will arrive as a new message.' }
 }
