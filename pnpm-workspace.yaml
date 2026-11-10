@@ -1,6 +1,3 @@
-# Sean's call: the ACP PoC uses the SDK published a day before it, inside the release-age cutoff.
-minimumReleaseAgeExclude:
-  - '@agentclientprotocol/sdk@2.0.2'
 # esbuild's install script only checks its platform binary, which its own package already ships.
 allowBuilds:
   esbuild: false

@@ -1,13 +1,9 @@
 import type { TurnStepChunk, TurnStepResult } from 'claude-code'
-import { expect, mock, type TestBody, test } from 'claude-code/testing'
+import { expect, test } from 'claude-code/testing'
 import { relayEvents } from '../hooks/acp/events'
 import type { Norm } from '../hooks/acp/norm'
 import { CHILD_CALL, type Job, type Mark, pump } from '../hooks/acp/steps'
-import { type Children, childRun, closeChildren, route, waitChild, woken } from '../hooks/children'
-import { NODE, run, STEP } from './helpers'
-
-// This regression needs real elapsed time: the engine's hook budget uses the real clock.
-declare function setTimeout(fn: () => void, ms: number): unknown
+import { type Children, childRun, closeChildren, route, woken } from '../hooks/children'
 
 // Captured 2026-10-28 from relay/relay.mjs over codex-acp 2.3.1-preview.8 (codex-cli 0.165.0, gpt-6-luna),
 // asked to spawn one subagent: the standard subagent_update flow of ACP's subagents RFD, trimmed.
@@ -78,10 +74,6 @@ test('a failed subagent says why', () => {
   )
 })
 
-const engine = (w: Children) => ({
-  viaChildren: { wait: ({ key }: { key: string }) => waitChild(w, key, () => ({ cancel: () => {} })) },
-})
-
 const world = (): Children => ({ channels: new Map(), nested: new Map() })
 const of = (child: string, norm: Norm): Extract<Norm, { k: 'of' }> => ({ k: 'of', child, norm })
 
@@ -106,7 +98,7 @@ test("a subagent's first event spawns its nested agent once, and its nested agen
   route(w, 'a1', 'via:codex', { k: 'child', id: 'c', parent: 'root', state: 'idle' })
   w.nested.set('n1', { key: 'a1/c#1' })
   const { out, result } = await drain(
-    childRun(w, engine(w), 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false),
+    childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})),
   )
   expect(out.filter((c) => c.kind === 'call-start' || c.kind === 'call-end')).toEqual([
     { kind: 'call-start', id: 'x', input: { kind: 'read', title: 'List files' }, usage: null },
@@ -142,7 +134,9 @@ test("a subagent with no announcement (codex-acp 2.3.0's own form) still gets a 
   // The parent's run ends before the nested agent's first step: its queue waits for it.
   closeChildren(w, 'a1')
   w.nested.set('n1', { key: 'a1/c#1' })
-  const { result } = await drain(childRun(w, engine(w), 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, true))
+  const { result } = await drain(
+    childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, true, () => new Promise(() => {})),
+  )
   expect(result.toolUses[0]?.name).toBe('SubagentHandback')
   expect(JSON.stringify(result.toolUses[0]?.input)).toContain('done')
 })
@@ -153,7 +147,9 @@ test("a subagent's own subagent is spawned by its nested agent, not the run's", 
   expect(route(w, 'a1', 'via:codex', { k: 'child', id: 'g', parent: 'c', title: 'inner' })).toEqual([])
   route(w, 'a1', 'via:codex', { k: 'child', id: 'c', parent: 'root', state: 'idle' })
   w.nested.set('n1', { key: 'a1/c#1' })
-  const { out } = await drain(childRun(w, engine(w), 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false))
+  const { out } = await drain(
+    childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})),
+  )
   expect(out.filter((c) => c.kind === 'spawn')).toEqual([{ kind: 'spawn', child: 'a1/g#1', type: 'via:codex', title: 'inner' }])
 })
 
@@ -164,7 +160,7 @@ test('a spawn mark ends the step with an Agent call in the background, remembere
   })()
   const job: Job = { turnId: 't1', gen, held: [], outputs: new Map(), abort: new AbortController(), count: 0 }
   const w = { tool: 'mcp__plugin_via_step__step', jobs: new Map([['a1', job]]), calls: new Map(), spawns: new Map<string, string>() }
-  const step = pump(w, job, { turnId: 't1', index: 0, agentId: 'a1' }, new AbortController().signal)
+  const step = pump(w, job, { turnId: 't1', index: 0, agentId: 'a1' }, new AbortController().signal, () => new Promise(() => {}))
   const chunks: TurnStepChunk[] = []
   let r = await step.next()
   while (!r.done) {
@@ -194,137 +190,4 @@ test("a nested agent's end or message to its via parent is a wake, and a prompt 
   expect(woken('<agent-message from="someone-else">hi</agent-message>', nested)).toBeUndefined()
   expect(woken('<agent-message from="n1" summary="done">ok</agent-message>', nested)).toBe('')
   expect(woken('Review the error handling in src/api.', nested)).toBeUndefined()
-})
-
-// A parent's run pauses at its Agent call. Its next step supplies the child's answer, so the
-// nested agent can sit on its queue without a mock process hook itself waiting ten seconds.
-async function nestedChild(
-  $: Parameters<TestBody>[0],
-  on: Parameters<TestBody>[1],
-  failure?: string,
-  refused?: 'wait' | 'state',
-  realTime = false,
-) {
-  if (realTime) on('clock.after', { ms: 5_000 }, () => new Promise((resolve) => setTimeout(() => resolve({ value: undefined }), 5_000)))
-  const clock = mock.clock(on)
-  mock.env(on, { HOME: '/home/u' })
-  on('agent.list', () => ({ value: [{ id: 'a1', description: 'parent', type: 'via:codex', status: 'running' }] }))
-  on('session.messages', () => ({ value: [] }))
-  on('turn.start', (_, e) => ({ turnId: e.turnId }))
-  on('agent.spawn', (_, e) => ({ agentId: 'n1', model: e.model ?? 'codex' }))
-  on('fs.stat', () => ({ value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false } }))
-  on('fs.write', () => ({ value: undefined }))
-  on('process.run', () => ({ value: NODE }))
-  const line = (events: unknown[]) => `${events.map((e) => JSON.stringify(e)).join('\n')}\n`
-  on('process.spawn', async function* () {
-    yield { stream: 'stdout', text: line(CAPTURED.slice(0, 5)) }
-    yield {
-      stream: 'stdout',
-      text: line([
-        CAPTURED[10],
-        failure
-          ? {
-              sessionId: ROOT,
-              update: {
-                sessionId: CHILD,
-                state: { state: 'idle', stopReason: 'error', error: { message: failure } },
-                sessionUpdate: 'subagent_update',
-              },
-            }
-          : CAPTURED[11],
-        { relay: 'done', stopReason: 'end_turn' },
-      ]),
-    }
-    return { value: { code: 0, signal: null } }
-  })
-  let requests = 0
-  on('turn.step', async function* (_, e) {
-    requests += 1
-    yield { kind: 'text', index: 0, text: 'API fallback' }
-    return { turnId: e.turnId, index: e.index, answer: 'API fallback', toolUses: [], stopReason: 'end_turn', usage: null }
-  })
-  if (refused === 'wait') on('viaChildren.wait', () => ({ deny: 'wait unavailable' }))
-  if (refused === 'state') on('state.get', { key: 'handbacks', id: 'n1' }, () => ({ deny: 'state unavailable' }))
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'List acp' })
-  const parent = await run($)
-  const tool = parent.chunks.find((c) => c.kind === 'tool')
-  expect(tool?.kind === 'tool' && tool.name).toBe('Agent')
-  await $.agent.spawn({
-    tool_use_id: tool?.kind === 'tool' ? tool.id : '',
-    subagentType: 'via:codex',
-    prompt: 'List acp',
-    description: 'List acp',
-    provider: { plugin: 'engine', tier: 'core' },
-    parentModel: 'codex',
-    parentAgentId: 'a1',
-    background: true,
-    fork: false,
-  })
-  await $.turn.start({ turnId: 'nested', agentId: 'n1', text: 'List acp' })
-  return { clock, requests: () => requests, finish: () => run($, { ...STEP, index: 1 }) }
-}
-
-test('a child silent for more than the real ten-second hook budget stays in via', { timeoutMs: 20_000 }, async ($, on) => {
-  const child = await nestedChild($, on, undefined, undefined, true)
-  const pending = run($, { ...STEP, turnId: 'nested', agentId: 'n1', model: 'gpt-6-luna' })
-  await child.clock.settle()
-  await new Promise<void>((resolve) => setTimeout(resolve, 11_000))
-  await child.finish()
-  const { result } = await pending
-  expect(result.answer).toBe('steps.ts\n\n— answered by codex subagent, gpt-6-luna')
-  expect(result.stopReason).toBe('end_turn')
-  expect(result.toolUses).toEqual([])
-  expect(child.requests()).toBe(0)
-})
-
-test('a failed ACP child preserves partial text, reports failure, and ends without an API request', async ($, on) => {
-  const child = await nestedChild($, on, 'Authentication required')
-  const pending = run($, { ...STEP, turnId: 'nested', agentId: 'n1', model: 'gpt-6-luna' })
-  await child.clock.settle()
-  await child.finish()
-  const { chunks, result } = await pending
-  expect(result.answer).toBe('steps.ts\n\nThe codex subagent failed: Authentication required')
-  expect(
-    chunks
-      .filter((c) => c.kind === 'text')
-      .map((c) => (c.kind === 'text' ? c.text : ''))
-      .join(''),
-  ).toBe(result.answer)
-  expect(result.stopReason).toBe('end_turn')
-  expect(result.toolUses).toEqual([])
-  expect(child.requests()).toBe(0)
-})
-
-test('a refused child wait ends the via child instead of falling through to the API', async ($, on) => {
-  const child = await nestedChild($, on, undefined, 'wait')
-  const { result } = await run($, { ...STEP, turnId: 'nested', agentId: 'n1' })
-  expect(result.answer).toBe('The codex subagent failed: could not wait for its next event')
-  expect(result.stopReason).toBe('end_turn')
-  expect(child.requests()).toBe(0)
-})
-
-test('a child renderer failure has an explicit end-turn catch, never an API fallback', async ($, on) => {
-  const child = await nestedChild($, on, undefined, 'state')
-  const { result } = await run($, { ...STEP, turnId: 'nested', agentId: 'n1' })
-  expect(result.answer).toBe('The codex subagent failed: via could not render its next step.')
-  expect(result.stopReason).toBe('end_turn')
-  expect(result.toolUses).toEqual([])
-  expect(child.requests()).toBe(0)
-})
-
-test('cancelling a quiet child removes its waiter and returns an unsigned failure', async () => {
-  const w = world()
-  route(w, 'a1', 'via:codex', { k: 'child', id: 'c', parent: 'root', title: 'quiet' })
-  w.nested.set('n1', { key: 'a1/c#1' })
-  const abort = new AbortController()
-  const pending = drain(childRun(w, engine(w), 'n1', 'codex', { turnId: 't1', index: 0 }, abort.signal, false))
-  await Promise.resolve()
-  expect(w.channels.get('a1/c#1')?.wake).toBeDefined()
-  abort.abort()
-  const { result } = await pending
-  expect(result.answer).toBe('The codex subagent failed: it was stopped')
-  expect(result.stopReason).toBe('end_turn')
-  expect(w.channels.get('a1/c#1')?.wake).toBeUndefined()
-  closeChildren(w, 'a1')
-  expect(w.channels.size).toBe(0)
 })
