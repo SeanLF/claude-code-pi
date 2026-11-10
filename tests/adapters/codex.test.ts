@@ -1,7 +1,6 @@
 import { expect, mock, type TestBody, test } from 'claude-code/testing'
-
 import { codexMode } from '../../hooks/adapters/codex'
-import { ROOT, runTurn, STEP } from '../helpers'
+import { ROOT, requestOf, runTurn, STEP, storage } from '../helpers'
 
 type TestOn = Parameters<TestBody>[1]
 type Spawn = { argv: string[]; input: string | undefined; env?: Record<string, string> }
@@ -95,6 +94,7 @@ function arrange(
   } = {},
 ) {
   const clock = mock.clock(on)
+  const files = storage(on, { read: false })
   mock.env(on, { HOME: '/home/u' })
   on('agent.list', () => ({ value: [AGENT] }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
@@ -106,6 +106,7 @@ function arrange(
     answered = resolve
   })
   on('fs.write', (_, e) => {
+    files.set(e.path, e.text)
     o.writes?.push({ path: e.path, text: e.text })
     if (e.text.includes('"answer"')) answered()
     return { value: undefined }
@@ -137,7 +138,7 @@ function arrange(
     return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false, realPath: e.path } }
   })
   on('fs.list', () => ({ value: [{ name: 'config.toml', kind: 'file', size: 1, mtimeMs: 0, isLink: false }] }))
-  on('fs.read', (_, e) => ({ value: `contents of ${e.path}` }))
+  on('fs.read', (_, e) => ({ value: files.get(e.path) ?? `contents of ${e.path}` }))
   on('tool.call', { tool: 'AskUserQuestion' }, (_, e) => {
     if (o.answer === 'reject') throw new Error('dismissed')
     const question = e.questions[0]?.question ?? ''
@@ -145,7 +146,7 @@ function arrange(
     return { result: { questions: e.questions, answers: { [question]: o.answer ?? 'Allow once' } } }
   })
   on('process.spawn', async function* (_, e) {
-    spawns.push({ argv: [...e.argv], input: e.input, env: e.env })
+    spawns.push(requestOf(e))
     if (o.pause) {
       yield { stream: 'stdout' as const, text: o.pause.first }
       await o.pause.until
@@ -178,6 +179,26 @@ test('a codex agent runs codex-acp behind the relay, with its prompt on stdin', 
     RELAY_INBOX: '/home/u/.claude/via/inbox/codex-a1.jsonl',
     RELAY_STEER: 'steering',
   })
+})
+
+test('a capacity pause streams progress while only the resumed answer is signed', async ($, on) => {
+  const spawns: Spawn[] = []
+  arrange(on, spawns, {
+    stdout: lines([
+      { relay: 'session', sessionId: SID },
+      { relay: 'steered' },
+      { relay: 'paused', message: 'Model at capacity' },
+      { relay: 'steered' },
+      chunk('resumed', 'Recovered with the helper result'),
+      { relay: 'model', name: 'test-model' },
+    ]),
+  })
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  const { chunks, result } = await runTurn($)
+  expect(chunks.some((chunk) => chunk.kind === 'text' && chunk.text.includes('native helpers are retained'))).toBe(true)
+  expect(result.answer).toBe('Recovered with the helper result\n\n— answered by codex, test-model')
+  expect(result.answer).not.toContain('capacity')
+  expect(spawns).toHaveLength(1)
 })
 
 test('only the last message is the answer, signed with the model the session runs on, and usage is its context', async ($, on) => {
@@ -416,7 +437,7 @@ test('a refused model names the closest models codex offers', async ($, on) => {
     ]),
     code: 1,
   })
-  on('store.get', (_, e, next) => (e.key === 'models.codex' ? { value: ['gpt-6.1-sol', 'gpt-6-luna', 'o9-mini'] } : next(e)))
+  on('store.get', { key: 'models.codex' }, () => ({ value: ['gpt-6.1-sol', 'gpt-6-luna', 'o9-mini'] }))
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'model: gpt-6-lunar\ngo' })
   const { result } = await runTurn($)
   expect(result.answer).toContain('refused model gpt-6-lunar')
@@ -431,7 +452,7 @@ test('a failure that names an offered model, such as a rate limit, suggests noth
     ]),
     code: 1,
   })
-  on('store.get', (_, e, next) => (e.key === 'models.codex' ? { value: ['gpt-6.1-sol', 'gpt-6-luna'] } : next(e)))
+  on('store.get', { key: 'models.codex' }, () => ({ value: ['gpt-6.1-sol', 'gpt-6-luna'] }))
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'model: gpt-6-luna\ngo' })
   const { result } = await runTurn($)
   expect(result.answer).toContain('rate limited for gpt-6-luna')

@@ -5,6 +5,7 @@ import { codex } from '../hooks/adapters/codex'
 import { opencode } from '../hooks/adapters/opencode'
 import { pi } from '../hooks/adapters/pi'
 import { helpOf } from '../hooks/prompt'
+import { storage } from './helpers'
 
 type On = Parameters<TestBody>[1]
 
@@ -20,6 +21,7 @@ const SPAWN: AgentSpawnInput = {
 }
 
 function spawned(on: On): string[] {
+  storage(on)
   const models: string[] = []
   on('agent.spawn', (_, e) => {
     models.push(e.model ?? '')
@@ -83,6 +85,7 @@ test("a via agent's precompute is skipped", async ($, on) => {
 })
 
 test("another agent's compaction runs as Claude Code's", async ($, on) => {
+  storage(on)
   on('agent.list', () => ({ value: [] }))
   on('session.compact', () => ({ messages: [row('user', 'summary')] }))
   const result = await $.session.compact({ trigger: 'auto', agentId: 'b1', messages: ROWS })
@@ -124,7 +127,9 @@ function codexOnPath(on: On, store: Map<string, unknown>, listing: { exitCode: n
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.model', () => ({ value: 'claude-haiku-5-5' }))
   const cwds: (string | undefined)[] = []
-  on('process.run', (_, e) => {
+  on('process.run', (_, e, next) => {
+    // The session's run pruning is not a model listing.
+    if (e.argv[2] === 'prune') return next(e)
     cwds.push(e.init?.cwd)
     return { value: { ...listing, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })

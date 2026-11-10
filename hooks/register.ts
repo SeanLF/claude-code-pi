@@ -1,11 +1,14 @@
 import type { EngineInterface, Register } from 'claude-code'
+import type { ViaChildren } from '../types'
 import { drawCall, drawGroup } from './acp/render'
 import { answerCall, CHILD_CALL, endJob, waitStep } from './acp/steps'
 import type { Adapter } from './adapter'
 import { waitChild, woken } from './children'
+import { respond, textChunks } from './handback'
 import { HARNESSES } from './harnesses'
 import { cachedModels, refreshModels } from './models'
 import { descriptionOf, isModel, promptOf } from './prompt'
+import { followRetained, helperOf, pruneRuns, ROSTER_UNAVAILABLE, roster, spawnOf } from './recovery'
 import { notActivePrompt } from './run'
 import { sendMessage, steer, typed } from './steer'
 import { adapterOf, remember, turnStep } from './turn'
@@ -125,7 +128,6 @@ export const register: Register = (on, options) => {
     jobs: new Map(),
     calls: new Map(),
   }
-  // The engine's bounded wait for a run's next chunk (see waitStep). A noun, so the wait is not charged to the hook.
   on('engine.create', async (_, e, next) => {
     const built = await next(e)
     return {
@@ -136,6 +138,10 @@ export const register: Register = (on, options) => {
       },
       viaChildren: {
         wait: ({ key }: { key: string }) => waitChild(world, key, (wake) => built.clock.after(5_000, wake)),
+        follow: async ({ harness, type, parent, argv, receipt }: Parameters<ViaChildren['follow']>[0]) => {
+          const adapter = world.adapters.get(harness)
+          if (adapter) followRetained(world, () => built.process.spawn({ argv }), type, adapter, parent, receipt)
+        },
       },
     }
   })
@@ -146,6 +152,8 @@ export const register: Register = (on, options) => {
       .model()
       .then((main) => sizeWindow($, main))
       .catch(() => undefined)
+    // Retained runs are bounded on disk; pruning runs beside the session, never ahead of it.
+    void pruneRuns($).catch(() => undefined)
     // Each harness tool call reaches Claude Code as a call to this tool, served by mcp/step.mts, which
     // runs nothing: its tool.call hook answers with what the harness reported. Bash would look the same,
     // but a hook that fails is skipped and the real command would run; a call nobody answers fails.
@@ -196,7 +204,10 @@ export const register: Register = (on, options) => {
     const [plugin, name = ''] = (e.subagentType ?? '').split(':')
     const adapter = plugin === $.plugin.name ? world.adapters.get(name) : undefined
     // A harness's subagent, which via shows from its parent's run: no harness of its own to choose.
-    const key = adapter && e.tool_use_id.startsWith(CHILD_CALL) ? world.spawns.get(e.tool_use_id) : undefined
+    const key =
+      adapter && e.tool_use_id.startsWith(CHILD_CALL)
+        ? (world.spawns.get(e.tool_use_id) ?? (await spawnOf($, e.parentAgentId, e.tool_use_id)))
+        : undefined
     if (adapter && key !== undefined) {
       world.spawns.delete(e.tool_use_id)
       // In the foreground the parent's step would wait on a nested agent that waits on the parent's run.
@@ -211,6 +222,12 @@ export const register: Register = (on, options) => {
         world.agents.set(started.agentId, adapter)
         world.nested.set(started.agentId, { key })
         world.handbacks.set(started.agentId, e.permissionMode === 'auto')
+        const parent = key.slice(0, key.indexOf('/'))
+        await remember(world, $, started.agentId, {
+          harness: adapter.name,
+          handback: e.permissionMode === 'auto',
+          nested: { key, parent, run: (await roster($))[parent]?.run },
+        })
       }
       return started
     }
@@ -279,9 +296,13 @@ export const register: Register = (on, options) => {
     return done
   })
 
-  on('turn.complete', async (_, e, next) => {
+  on('turn.complete', async ($, e, next) => {
     world.turns.delete(e.turnId)
     for (const [agentId, job] of world.jobs) if (job.turnId === e.turnId) endJob(world, agentId)
+    if (e.isAborted && e.agentId) {
+      const receipt = (await roster($))[e.agentId]?.run
+      if (receipt?.turnId === e.turnId) await $.process.run(['node', helperOf($), 'cancel', receipt.path], { timeoutMs: 7500 })
+    }
     return next(e)
   })
 
@@ -305,5 +326,22 @@ export const register: Register = (on, options) => {
 
   on('turn.step', async function* ($, e, next) {
     return yield* turnStep(world, $, e, next)
+  }).catch(async function* ($, e, next) {
+    const adapter = e.agentId === undefined ? undefined : world.agents.get(e.agentId)
+    if (!adapter && next.error.message?.includes(ROSTER_UNAVAILABLE)) {
+      // Fail closed for anything that may be via's: a resumed via agent can list as general-purpose,
+      // but its step then names the harness's model. A listed non-via agent on a Claude model is Claude's.
+      const listed = e.agentId === undefined ? undefined : (await $.agent.list().catch(() => [])).find((a) => a.id === e.agentId)
+      const claude = listed !== undefined && !listed.type.startsWith(`${$.plugin.name}:`) && CLAUDE.test(e.model)
+      if (claude) return yield* next(e)
+      return yield* respond(e, textChunks(ROSTER_UNAVAILABLE), ROSTER_UNAVAILABLE)
+    }
+    if (!adapter) return yield* next(e)
+    // A skipped hook would send this harness's model id to Anthropic. End the via turn instead.
+    endJob(world, e.agentId as string)
+    const report = `The ${adapter.name}${world.nested.has(e.agentId as string) ? ' subagent' : ''} failed: via could not render its next step.`
+    const nested = world.nested.get(e.agentId as string)
+    if (nested) nested.report = report
+    return yield* respond(e, textChunks(report), report)
   })
 }
