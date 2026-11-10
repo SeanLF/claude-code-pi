@@ -3,10 +3,10 @@ export type Choice = {
   tools?: string
   thinking?: string
 }
-export type ViaSteps = { wait: (input: { agentId: string }) => Promise<void> }
 declare module 'claude-code' {
   interface EngineInterface {
-    viaSteps: ViaSteps
+    viaSteps: { wait: (input: { agentId: string; turnId: string }) => Promise<void> }
+    viaChildren: { wait: (input: { key: string }) => Promise<void> }
   }
 
   interface PluginState {

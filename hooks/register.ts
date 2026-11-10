@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import { drawCall, drawGroup } from './acp/render'
 import { answerCall, CHILD_CALL, endJob, waitStep } from './acp/steps'
 import type { Adapter } from './adapter'
-import { woken } from './children'
+import { waitChild, woken } from './children'
 import { HARNESSES } from './harnesses'
 import { cachedModels, refreshModels } from './models'
 import { descriptionOf, isModel, promptOf } from './prompt'
@@ -125,11 +125,18 @@ export const register: Register = (on, options) => {
     jobs: new Map(),
     calls: new Map(),
   }
+  // The engine's bounded wait for a run's next chunk (see waitStep). A noun, so the wait is not charged to the hook.
   on('engine.create', async (_, e, next) => {
     const built = await next(e)
     return {
       ...built,
-      viaSteps: { wait: ({ agentId }: { agentId: string }) => waitStep(world, agentId, (wake) => built.clock.after(5_000, wake)) },
+      viaSteps: {
+        wait: ({ agentId, turnId }: { agentId: string; turnId: string }) =>
+          waitStep(world, agentId, turnId, (wake) => built.clock.after(5_000, wake)),
+      },
+      viaChildren: {
+        wait: ({ key }: { key: string }) => waitChild(world, key, (wake) => built.clock.after(5_000, wake)),
+      },
     }
   })
   on('session.start', async ($, e, next) => {
@@ -282,13 +289,14 @@ export const register: Register = (on, options) => {
     on('tool.call', { tool: 'SendMessage' }, async ($, e, next) => sendMessage(world, $, e, next))
 
   // The matcher's type names only built-in tools; an MCP tool's full name is accepted at run time.
+  // A command silent past 30 seconds answers with a continuation, so Claude Code's stream sees progress.
   on('tool.call', { tool: STEP as 'Bash' }, ($, e, next) =>
     answerCall(
       world,
       e.tool_use_id,
       next.signal,
       (wake) => $.clock.after(30_000, wake),
-      (agentId) => $.viaSteps.wait({ agentId }),
+      (agentId, turnId) => $.viaSteps.wait({ agentId, turnId }),
     ),
   ).catch(() => ({
     deny: 'via could not report this harness tool call.',

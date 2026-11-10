@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/SeanLF/claude-code-subagent-harnesses/compare/via-v0.8.0...via-v0.8.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **via:** a step's and a nested child's waits run as bounded engine nouns ([#41](https://github.com/SeanLF/claude-code-subagent-harnesses/issues/41)) ([c088c91](https://github.com/SeanLF/claude-code-subagent-harnesses/commit/c088c914619150573cf6794dd019fa85e368277a))
+
 ## [0.8.0](https://github.com/SeanLF/claude-code-subagent-harnesses/compare/via-v0.7.0...via-v0.8.0) (2026-10-28)
 
 

@@ -25,7 +25,8 @@ export type Job = {
   final?: TurnStepResult
   abort: AbortController
   count: number
-  // A progress continuation reuses the outstanding read, never another generator.next().
+  // The generator's next chunk, requested and not yet taken. A step that stops waiting leaves it here, and so
+  // does a call answered with a progress continuation: the next reader reuses it, never another generator.next().
   reading?: Promise<IteratorResult<TurnStepChunk | Mark, TurnStepResult>>
 }
 
@@ -37,36 +38,6 @@ export type Steps = {
   calls: Map<string, { agentId: string; id: string; input?: Extract<Mark, { kind: 'call-start' }>['input'] }> // by tool_use_id
 }
 
-function read(job: Job): Promise<IteratorResult<TurnStepChunk | Mark, TurnStepResult>> {
-  job.reading ??= job.gen.next()
-  return job.reading
-}
-
-async function take(job: Job): Promise<IteratorResult<TurnStepChunk | Mark, TurnStepResult>> {
-  const result = await read(job)
-  job.reading = undefined
-  return result
-}
-
-// A continuation can inherit a read started by an earlier hook. Join it through an
-// engine noun so this hook's own-time budget excludes the wait. Each noun reply stays
-// below the engine's ten-second deadline, even when the command takes many minutes.
-export async function waitStep(w: Steps, agentId: string, after: (wake: () => void) => Timer): Promise<void> {
-  const job = w.jobs.get(agentId)
-  if (!job || job.final !== undefined || job.abort.signal.aborted) return
-  let timer: Timer | undefined
-  try {
-    await Promise.race([
-      read(job),
-      new Promise<void>((resolve) => {
-        timer = after(resolve)
-      }),
-    ])
-  } finally {
-    timer?.cancel()
-  }
-}
-
 // The Agent calls a step makes for a harness's subagents: approved without the mode's classifier, which
 // judges only a model's own calls, and their nested agents run as via's.
 export const CHILD_CALL = 'toolu_via_child_'
@@ -74,6 +45,52 @@ export const CHILD_CALL = 'toolu_via_child_'
 // What a run ended early answers its next step: an aborted run's end of turn, as drive's own.
 function ended(turnId: string): TurnStepResult {
   return { turnId, index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
+}
+
+// Aborted (Esc, a new turn) with the run parked at a yield: nothing would pull on to the race that stops it,
+// so end it, which runs its cleanup and stops the harness. A wait would only return at once.
+function halted(job: Job): boolean {
+  if (!job.abort.signal.aborted) return false
+  job.final ??= ended(job.turnId)
+  void job.gen.return(undefined as never).catch(() => {})
+  return true
+}
+
+// What a step says when the run's producer or its engine wait fails, and the run is ended.
+const NOT_FOLLOWED = 'The harness run could not be followed: its producer or its wait failed.'
+
+// The job's next chunk. Requested once and shared: a step that stops waiting leaves the same read for the
+// next step or the tool call to take, so the generator advances once per chunk.
+function read(job: Job): Promise<IteratorResult<TurnStepChunk | Mark, TurnStepResult>> {
+  // A rejected read is not kept: the next read asks the generator, which has ended, and answers done.
+  job.reading ??= job.gen.next().catch((error: unknown) => {
+    job.reading = undefined
+    throw error
+  })
+  return job.reading
+}
+
+// The engine's bounded wait for a run's next chunk: returns when the chunk arrives, when the bound passes,
+// or at once if the run was replaced or aborted. It runs inside the engine, not the hook, because the hook's
+// own budget is ten seconds and a silent harness can take longer than that. The read is shared, so a wait
+// that returns early never advances the generator.
+export async function waitStep(w: Steps, agentId: string, turnId: string, after: (wake: () => void) => Timer): Promise<void> {
+  const job = w.jobs.get(agentId)
+  if (job === undefined || job.turnId !== turnId || job.final !== undefined || job.abort.signal.aborted) return
+  let timer: Timer | undefined
+  try {
+    await Promise.race([
+      read(job).then(
+        () => undefined,
+        () => undefined,
+      ),
+      new Promise<void>((resolve) => {
+        timer = after(resolve)
+      }),
+    ])
+  } finally {
+    timer?.cancel()
+  }
 }
 
 // Stops a run no step will read again: a new turn, or the turn's end.
@@ -99,6 +116,7 @@ export async function* pump(
   job: Job,
   e: { turnId: string; index: number; agentId?: string },
   signal: AbortSignal,
+  wait: () => Promise<void>,
 ): AsyncGenerator<TurnStepChunk, TurnStepResult> {
   const unlend = lend(job, signal)
   // Block indexes start again at each step.
@@ -113,10 +131,35 @@ export async function* pump(
       const heldChunk = job.held.shift()
       if (heldChunk !== undefined) c = heldChunk
       else if (job.final !== undefined) {
-        w.jobs.delete(e.agentId ?? '')
+        // A new turn may already hold this agent's slot.
+        if (w.jobs.get(e.agentId ?? '') === job) w.jobs.delete(e.agentId ?? '')
         return { ...job.final, turnId: e.turnId, index: e.index }
-      } else {
-        const r = await take(job)
+      } else if (halted(job)) continue
+      else {
+        // Bounded: the hook answers within its budget. Without a chunk yet, wait again, and the read stays pending.
+        // A failed read or wait ends the step with an explicit answer (below), never a hook error, which
+        // would send the request to the model without the hooks.
+        const arrived = await Promise.race([
+          read(job).then(
+            () => true,
+            () => undefined,
+          ),
+          wait().then(
+            () => false,
+            () => undefined,
+          ),
+        ])
+        if (arrived === undefined) {
+          job.abort.abort()
+          job.final ??= { ...ended(job.turnId), answer: NOT_FOLLOWED }
+          void job.gen.return(undefined as never).catch(() => {})
+          // After the abort: a caller that stops at this yield must not leave the run running.
+          yield { kind: 'text', index: block(-2), text: NOT_FOLLOWED }
+          continue
+        }
+        if (!arrived) continue
+        const r = await read(job)
+        job.reading = undefined
         if (r.done) {
           // A generator ended from outside returns nothing: without a final, this loop would spin.
           job.final = r.value ?? ended(e.turnId)
@@ -170,7 +213,7 @@ export async function answerCall(
   toolUseId: string | undefined,
   signal: AbortSignal,
   after?: (wake: () => void) => Timer,
-  wait?: (agentId: string) => Promise<void>,
+  wait?: (agentId: string, turnId: string) => Promise<void>,
 ): Promise<{ result: string; isError?: true } | { deny: string }> {
   const ref = toolUseId === undefined ? undefined : w.calls.get(toolUseId)
   const job = ref === undefined ? undefined : w.jobs.get(ref.agentId)
@@ -188,15 +231,18 @@ export async function answerCall(
         w.calls.delete(toolUseId as string)
         return done.failed ? { result: done.output || 'failed', isError: true } : { result: done.output || NO_OUTPUT }
       }
-      if (job.final !== undefined) return { result: 'The harness run ended before this call finished.' }
-      // Aborted (Esc) with the run parked at a yield, which nothing would pull on to the race that stops it:
-      // ending it runs its cleanup, which stops the harness.
-      if (job.abort.signal.aborted) {
-        job.final ??= ended(job.turnId)
-        void job.gen.return(undefined as never).catch(() => {})
-        return { result: 'The harness run ended before this call finished.' }
+      if (job.final !== undefined || halted(job)) return { result: 'The harness run ended before this call finished.' }
+      let r: IteratorResult<TurnStepChunk | Mark, TurnStepResult> | 'wake' | undefined
+      try {
+        // A read a continuation left pending was started by an earlier hook, so waiting on it here is charged
+        // to this hook's budget: join it through the engine's bounded wait, which is not.
+        r = await Promise.race([read(job), progress, ...(wait ? [wait(ref.agentId, job.turnId).then(() => 'wake' as const)] : [])])
+      } catch {
+        // The producer failed: end the run and answer the call, rather than fail the tool-call hook.
+        job.abort.abort()
+        job.final ??= { ...ended(job.turnId), answer: NOT_FOLLOWED }
+        return { result: NOT_FOLLOWED }
       }
-      const r = await Promise.race([read(job), progress, ...(wait ? [wait(ref.agentId).then(() => 'wake' as const)] : [])])
       if (r === 'wake') continue
       if (r === undefined) {
         // Only the display advances. The command and its pending read continue under the same id.
