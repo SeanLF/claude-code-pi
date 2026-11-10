@@ -172,6 +172,7 @@ test('the signed result is durable before the renderer receives the final signat
 })
 
 test('a run whose durable mapping cannot be saved refuses to start the harness', async ($, on) => {
+  mock.clock(on)
   mock.env(on, { HOME: '/home/u' })
   on('agent.list', () => ({ value: [{ id: 'a1', description: 'x', type: 'via:pi', status: 'running' }] }))
   on('session.messages', () => ({ value: [] }))
@@ -191,7 +192,7 @@ test('a run whose durable mapping cannot be saved refuses to start the harness',
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
   const { result } = await run($)
   expect(spawned).toBe(false)
-  expect(result.answer).toContain('via could not render its next step')
+  expect(result.answer).toContain('The harness run could not be followed: its producer or its wait failed.')
 })
 
 test('a late child replay and a new run using the same child session never share a channel', async ($, on) => {
@@ -497,7 +498,13 @@ test('a failed spawn mapping write still shows the child and keeps the run going
       throw new Error('synthetic store failure')
     },
   }
-  const stream = steps.pump(world, job, { turnId: 't1', index: 0, agentId: 'a1' }, new AbortController().signal, () => new Promise(() => {}))
+  const stream = steps.pump(
+    world,
+    job,
+    { turnId: 't1', index: 0, agentId: 'a1' },
+    new AbortController().signal,
+    () => new Promise(() => {}),
+  )
   let result = await stream.next()
   while (!result.done) result = await stream.next()
   expect(result.value.stopReason).toBe('tool_use')

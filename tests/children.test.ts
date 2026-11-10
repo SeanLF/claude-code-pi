@@ -103,9 +103,7 @@ test("a subagent's first event spawns its nested agent once, and its nested agen
   route(w, 'a1', 'via:codex', of('c', { k: 'text', t: 'steps.ts' }))
   route(w, 'a1', 'via:codex', { k: 'child', id: 'c', parent: 'root', state: 'idle' })
   w.nested.set('n1', { key: 'a1/c#1' })
-  const { out, result } = await drain(
-    childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false, wait(w)),
-  )
+  const { out, result } = await drain(childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false, wait(w)))
   expect(out.filter((c) => c.kind === 'call-start' || c.kind === 'call-end')).toEqual([
     { kind: 'call-start', id: 'x', input: { kind: 'read', title: 'List files' }, usage: null },
     { kind: 'call-end', id: 'x', output: 'steps.ts', failed: false },
