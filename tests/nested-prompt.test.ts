@@ -43,7 +43,7 @@ for (const title of [undefined, 'Orchard reviewer']) {
     })()
     const job: Job = { turnId: 'parent', gen, held: [], outputs: new Map(), abort: new AbortController(), count: 0 }
     const steps = { tool: 'step', jobs: new Map(), calls: new Map(), spawns: new Map() }
-    const parent = await drain(pump(steps, job, { turnId: 'parent', index: 0 }, new AbortController().signal))
+    const parent = await drain(pump(steps, job, { turnId: 'parent', index: 0 }, new AbortController().signal, () => new Promise(() => {})))
     expect(parent.result.toolUses).toEqual([
       { name: 'Agent', input: { description: title ?? 'subagent', prompt: PROMPT, subagent_type: 'via:codex', run_in_background: true } },
     ])
@@ -64,7 +64,9 @@ for (const title of [undefined, 'Orchard reviewer']) {
     )
     routed(w, update(parse, ROOT, { sessionUpdate: 'subagent_update', sessionId: CHILD, state: { state: 'idle' } }))
     w.nested.set('n1', { key: 'a1/parent-thread:subagent:helper-thread#1' })
-    const child = await drain(childRun(w, 'n1', 'codex', { turnId: 'child', index: 0 }, new AbortController().signal, false))
+    const child = await drain(
+      childRun(w, 'n1', 'codex', { turnId: 'child', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})),
+    )
     expect(child.out.slice(0, 3)).toEqual([
       { kind: 'text', index: 0, text: 'Checking the orchard.' },
       { kind: 'call-start', id: 'read', input: { kind: 'read', title: 'Read orchard.ts' }, usage: null },
@@ -137,7 +139,9 @@ test('a child emits a user row between assistant blocks without changing its sig
     route(w, 'a1', 'via:codex', { k: 'of', child: 'c', norm })
   route(w, 'a1', 'via:codex', { k: 'child', id: 'c', parent: ROOT, state: 'idle' })
   w.nested.set('n1', { key: 'a1/c#1' })
-  const child = await drain(childRun(w, 'n1', 'codex', { turnId: 'child', index: 0 }, new AbortController().signal, false))
+  const child = await drain(
+    childRun(w, 'n1', 'codex', { turnId: 'child', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})),
+  )
   expect(child.out.slice(0, 3)).toEqual([
     { kind: 'text', index: 0, text: 'Checking fruit.' },
     { kind: 'user', text: FOLLOW },

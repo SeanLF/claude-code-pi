@@ -199,21 +199,26 @@ async function* nestedStep(
     await $.session.append({ agentId, message: { type: 'user', content: [{ type: 'text', text }] } })
   }
   const job = w.jobs.get(agentId)
-  if (job !== undefined) return yield* pump(w, job, e, signal, user)
+  if (job !== undefined) return yield* pump(w, job, e, signal, joining($, agentId, job.turnId), user)
   // After its handback, or a later message: the answer again, as text.
   if (nested.report !== undefined) return yield* respond(e, textChunks(nested.report), nested.report)
   const abort = new AbortController()
   const handback = await handbackOf(w, $, agentId)
   const started: Job = {
     turnId: e.turnId,
-    gen: childRun(w, agentId, adapter.name, e, abort.signal, handback),
+    gen: childRun(w, agentId, adapter.name, e, abort.signal, handback, (key) => $.viaChildren.wait({ key })),
     held: [],
     outputs: new Map(),
     abort,
     count: 0,
   }
   w.jobs.set(agentId, started)
-  return yield* pump(w, started, e, signal, user)
+  return yield* pump(w, started, e, signal, joining($, agentId, e.turnId), user)
+}
+
+// A step's wait for its run's next chunk: the engine's bounded wait, see waitStep.
+function joining($: Parameters<StepHook>[0], agentId: string, turnId: string): () => Promise<void> {
+  return () => $.viaSteps.wait({ agentId, turnId })
 }
 
 // A run outlives the step that started it: each harness tool call ends a step with a call to via's
@@ -232,14 +237,14 @@ export async function* turnStep(w: World, $: Parameters<StepHook>[0], e: Paramet
   }
   const job = w.jobs.get(agentId)
   if (job !== undefined) {
-    if (job.turnId === e.turnId) return yield* pump(w, job, e, next.signal)
+    if (job.turnId === e.turnId) return yield* pump(w, job, e, next.signal, joining($, agentId, e.turnId))
     endJob(w, agentId)
   }
   const started = yield* begin(w, adapter, $, e, agentId)
   if (started === undefined) return yield* respond(e, [{ kind: 'stop', stopReason: 'end_turn', usage: null }], '')
   if ('answer' in started) return started
   w.jobs.set(agentId, started)
-  return yield* pump(w, started, e, next.signal)
+  return yield* pump(w, started, e, next.signal, joining($, agentId, e.turnId))
 }
 
 // Everything before the run: refusals answer at once; otherwise the run as a job.

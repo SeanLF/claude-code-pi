@@ -7,12 +7,22 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # One PR for all minor and patch bumps; majors still open their own PR.
+      minor-and-patch:
+        update-types: ["minor", "patch"]
   # What a pinned via installs on people's machines: a bump here is the reviewed update.
   - package-ecosystem: npm
     directory: /relay/codex-acp
     schedule:
       interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]

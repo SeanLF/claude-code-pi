@@ -107,7 +107,7 @@ test("a child's progress and step rows stream before its final message", async (
   send({ k: 'called', id: 'read', output: 'source', failed: false })
   const job: Job = {
     turnId: 't1',
-    gen: childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false),
+    gen: childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})),
     held: [],
     outputs: new Map(),
     abort: new AbortController(),
@@ -116,12 +116,13 @@ test("a child's progress and step rows stream before its final message", async (
   const steps = { ...w, tool: 'mcp__plugin_via_step__step', jobs: new Map([['n1', job]]), calls: new Map(), spawns: new Map() }
   const step = { turnId: 't1', index: 0, agentId: 'n1' }
   const signal = new AbortController().signal
-  const first = await drain(pump(steps, job, step, signal))
+  const wait = () => new Promise<void>(() => {})
+  const first = await drain(pump(steps, job, step, signal, wait))
   expect(first.out[0]).toEqual({ kind: 'thinking', index: 0, text: 'Checking the call sites.' })
   expect(first.result.toolUses[0]?.input).toEqual({ kind: 'plan', title: 'Plan' })
   const planCall = first.out.find((c) => c.kind === 'tool')
   expect(await answerCall(steps, planCall?.kind === 'tool' ? planCall.id : undefined, signal)).toEqual({ result: '◐ Read the code' })
-  const second = await drain(pump(steps, job, { ...step, index: 1 }, signal))
+  const second = await drain(pump(steps, job, { ...step, index: 1 }, signal, wait))
   expect(second.out[0]).toEqual({ kind: 'text', index: 0, text: 'Reading the implementation.' })
   expect(second.result.toolUses[0]?.input).toEqual({ kind: 'read', title: 'Read hooks/children.ts' })
   const readCall = second.out.find((c) => c.kind === 'tool')
@@ -131,7 +132,7 @@ test("a child's progress and step rows stream before its final message", async (
   send({ k: 'message' })
   send({ k: 'text', t: 'The implementation is correct.' })
   route(w, 'a1', 'via:codex', { k: 'child', id: 'c', parent: 'root', state: 'idle' })
-  const final = await drain(pump(steps, job, { ...step, index: 2 }, signal))
+  const final = await drain(pump(steps, job, { ...step, index: 2 }, signal, wait))
   expect(final.result.answer).toBe('The implementation is correct.\n\n— answered by codex subagent')
   expect(final.result.stopReason).toBe('end_turn')
 })
@@ -173,7 +174,9 @@ test("a subagent's first event spawns its nested agent once, and its nested agen
   route(w, 'a1', 'via:codex', of('c', { k: 'text', t: 'steps.ts' }))
   route(w, 'a1', 'via:codex', { k: 'child', id: 'c', parent: 'root', state: 'idle' })
   w.nested.set('n1', { key: 'a1/c#1' })
-  const { out, result } = await drain(childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false))
+  const { out, result } = await drain(
+    childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})),
+  )
   expect(out.filter((c) => c.kind === 'call-start' || c.kind === 'call-end')).toEqual([
     { kind: 'call-start', id: 'x', input: { kind: 'read', title: 'List files' }, usage: null },
     { kind: 'call-end', id: 'x', output: 'steps.ts', failed: false },
@@ -208,7 +211,9 @@ test("a subagent with no announcement (codex-acp 2.3.0's own form) still gets a 
   // The parent's run ends before the nested agent's first step: its queue waits for it.
   closeChildren(w, 'a1')
   w.nested.set('n1', { key: 'a1/c#1' })
-  const { result } = await drain(childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, true))
+  const { result } = await drain(
+    childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, true, () => new Promise(() => {})),
+  )
   expect(result.toolUses[0]?.name).toBe('SubagentHandback')
   expect(JSON.stringify(result.toolUses[0]?.input)).toContain('done')
 })
@@ -219,7 +224,9 @@ test("a subagent's own subagent is spawned by its nested agent, not the run's", 
   expect(route(w, 'a1', 'via:codex', { k: 'child', id: 'g', parent: 'c', title: 'inner' })).toEqual([])
   route(w, 'a1', 'via:codex', { k: 'child', id: 'c', parent: 'root', state: 'idle' })
   w.nested.set('n1', { key: 'a1/c#1' })
-  const { out } = await drain(childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false))
+  const { out } = await drain(
+    childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})),
+  )
   expect(out.filter((c) => c.kind === 'spawn')).toEqual([{ kind: 'spawn', child: 'a1/g#1', type: 'via:codex', title: 'inner' }])
 })
 
@@ -230,7 +237,7 @@ test('a spawn mark ends the step with an Agent call in the background, remembere
   })()
   const job: Job = { turnId: 't1', gen, held: [], outputs: new Map(), abort: new AbortController(), count: 0 }
   const w = { tool: 'mcp__plugin_via_step__step', jobs: new Map([['a1', job]]), calls: new Map(), spawns: new Map<string, string>() }
-  const step = pump(w, job, { turnId: 't1', index: 0, agentId: 'a1' }, new AbortController().signal)
+  const step = pump(w, job, { turnId: 't1', index: 0, agentId: 'a1' }, new AbortController().signal, () => new Promise(() => {}))
   const chunks: TurnStepChunk[] = []
   let r = await step.next()
   while (!r.done) {

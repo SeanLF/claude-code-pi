@@ -1,4 +1,4 @@
-import type { TurnStepChunk, TurnStepResult } from 'claude-code'
+import type { EngineInterface, TurnStepChunk, TurnStepResult } from 'claude-code'
 import type { Norm } from './acp/norm'
 import { CHILD_CALL, type Mark } from './acp/steps'
 import { deliver, respond } from './handback'
@@ -137,6 +137,30 @@ export function closeChildren(w: Children, agentId: string, failure?: string): v
 
 // A nested agent's run: its child's rows and messages, then its last message as the answer, signed with
 // the model the child's session reported.
+// The engine's bounded wait for a nested agent's channel to get its next event (see waitChild). Resolves when
+// an event arrives, after the bound, or at once when the channel already has one. A noun, so the wait is not
+// charged to the hook's own budget.
+export async function waitChild(
+  w: Children,
+  key: string,
+  after: (wake: () => void) => ReturnType<EngineInterface['clock']['after']>,
+): Promise<void> {
+  const channel = w.channels.get(key)
+  // Gone: throw, so the caller ends its answer. Returning would make the caller wait again at once, forever.
+  if (!channel) throw new Error('its event channel is no longer available')
+  if (channel.queue.length > 0) return
+  let timer: ReturnType<EngineInterface['clock']['after']> | undefined
+  try {
+    await new Promise<void>((resolve) => {
+      channel.wake = resolve
+      timer = after(resolve)
+    })
+  } finally {
+    channel.wake = undefined
+    timer?.cancel()
+  }
+}
+
 const PLAN_MARKS: Record<string, string> = { pending: '☐', in_progress: '◐', completed: '☑' }
 
 export async function* childRun(
@@ -146,6 +170,7 @@ export async function* childRun(
   e: { turnId: string; index: number },
   signal: AbortSignal,
   handback: boolean,
+  wait: (key: string) => Promise<void>,
 ): AsyncGenerator<TurnStepChunk | Mark, TurnStepResult> {
   const nested = w.nested.get(agentId)
   const channel = nested === undefined ? undefined : w.channels.get(nested.key)
@@ -166,12 +191,18 @@ export async function* childRun(
     const item = channel?.queue.shift() ?? (channel === undefined ? ({ k: 'end' } as const) : undefined)
     if (item === undefined) {
       if (signal.aborted) break
-      await new Promise<void>((resolve) => {
-        const go = () => resolve()
-        ;(channel as Channel).wake = go
-        signal.addEventListener('abort', go, { once: true })
-      })
-      ;(channel as Channel).wake = undefined
+      // Bounded: each wait returns within the engine's reply deadline. A failed wait ends this child's answer
+      // with a failure, not an error: an error would fall through to the model without the hooks.
+      const wake = () => channel?.wake?.()
+      signal.addEventListener('abort', wake, { once: true })
+      try {
+        await wait((channel as Channel).key)
+      } catch {
+        failure = 'could not wait for its next event'
+        break
+      } finally {
+        signal.removeEventListener('abort', wake)
+      }
       continue
     }
     if (item.k === 'end') {
