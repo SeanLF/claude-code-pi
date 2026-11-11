@@ -216,8 +216,14 @@ async function* begin(
   // What the person allows Claude itself, as the spawn carried it: plan mode is read-only here too.
   const mode = record.mode as Mode
   const withModel: Choice = merged.model ? merged : { ...merged, ...(defaultModel ? { model: defaultModel } : {}) }
+  // An agent with no record runs read-only (adapterOf): its refusals say so, not that the person chose it.
+  const anyway = record.rebuilt
+    ? `via has no record of the permission mode this agent was spawned with, so it runs read-only. Start a new agent to run it with your current mode.`
+    : 'To run it anyway, start a new agent without `tools: read`, outside plan mode; or ask a harness that can enforce read-only.'
   if (mode === 'plan' && adapter.readOnly === 'none') {
-    const refused = `${adapter.name} cannot run in plan mode: it has no read-only mode that via can enforce. Leave plan mode to run it, or ask a harness that can enforce read-only.`
+    const refused = record.rebuilt
+      ? `${adapter.name} cannot run read-only: it has no read-only mode that via can enforce. ${anyway}`
+      : `${adapter.name} cannot run in plan mode: it has no read-only mode that via can enforce. Leave plan mode to run it, or ask a harness that can enforce read-only.`
     return yield* respond(e, textChunks(refused), refused)
   }
   // Plan mode is read-only whatever tools line the prompt carries: a pi list such as `bash` would run commands.
@@ -229,13 +235,13 @@ async function* begin(
   if (unsafe && found) {
     const refused =
       found === 'unchecked'
-        ? `${adapter.name} cannot run read-only here: this folder and those above it could not all be checked for ${unsafe.folder}, and ${unsafe.why}. To run it anyway, start a new agent without \`tools: read\`, outside plan mode; or ask a harness that can enforce read-only.`
-        : `${adapter.name} cannot run read-only here: ${unsafe.why} (${found}). To run it anyway, start a new agent without \`tools: read\`, outside plan mode; or ask a harness that can enforce read-only.`
+        ? `${adapter.name} cannot run read-only here: this folder and those above it could not all be checked for ${unsafe.folder}, and ${unsafe.why}. ${anyway}`
+        : `${adapter.name} cannot run read-only here: ${unsafe.why} (${found}). ${anyway}`
     return yield* respond(e, textChunks(refused), refused)
   }
   const guard = chosen.tools === 'read' ? await readOnlyGuard($, adapter) : undefined
   if (typeof guard === 'string') {
-    const refused = `${adapter.name} cannot run read-only here: ${guard}. To run it anyway, start a new agent without \`tools: read\`, outside plan mode; or ask a harness that can enforce read-only.`
+    const refused = `${adapter.name} cannot run read-only here: ${guard}. ${anyway}`
     return yield* respond(e, textChunks(refused), refused)
   }
   const ready = await relayReady(w, $, adapter, w.latest.has(adapter.name))

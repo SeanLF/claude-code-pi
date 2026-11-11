@@ -20,16 +20,17 @@ function isFile($: Engine, path: string): Promise<boolean> {
   )
 }
 
-// The versions an earlier via installed: each lives in a folder of its own. Another Claude Code session may
-// still run an older via from one, so only a folder untouched for STALE goes. Best effort and not awaited:
-// a folder left behind only costs disk.
-const STALE = 14 * 24 * 60 * 60 * 1000
+// The versions earlier releases installed: each lives in a folder of its own. Another Claude Code session may
+// still run the release before this one, so the newest of them stays and the older ones go. Newest by the
+// folder's own time, which is when it was installed: using one does not change it. Best effort and not
+// awaited: a folder left behind only costs disk.
 async function prune($: Engine, root: string, dir: string): Promise<void> {
   const family = dir.replace(/\d.*$/, '')
   const entries = await $.fs.list(root).catch(() => [])
-  const now = Date.now()
   const old = entries
-    .filter((entry) => entry.kind === 'dir' && entry.name !== dir && entry.name.startsWith(family) && now - entry.mtimeMs > STALE)
+    .filter((entry) => entry.kind === 'dir' && entry.name !== dir && entry.name.startsWith(family))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(1)
     .map((entry) => `${root}/${entry.name}`)
   if (old.length === 0) return
   const remove = "for (const d of process.argv.slice(1)) require('fs').rmSync(d, { recursive: true, force: true })"

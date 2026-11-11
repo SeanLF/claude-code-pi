@@ -763,3 +763,16 @@ test('an agent via has no record of runs read-only, and its made-up record is ne
   expect(result.answer).toContain('all done')
   expect(store.record('a1')).toBeUndefined()
 })
+
+test('a refusal for an agent via has no record of says why it runs read-only, not to leave plan mode', async ($, on) => {
+  mock.env(on, ENV)
+  node(on)
+  agentStore(on)
+  on('agent.list', () => ({ value: [{ id: 'a1', description: 'x', type: 'via:agy', status: 'running' }] }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('session.messages', () => ({ value: [] }))
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  const { result } = await run($)
+  expect(result.answer).toContain('via has no record of the permission mode this agent was spawned with')
+  expect(result.answer).not.toContain('plan mode')
+})

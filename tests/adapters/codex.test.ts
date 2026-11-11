@@ -148,7 +148,7 @@ function arrange(
             name,
             kind: 'dir' as const,
             size: 0,
-            mtimeMs: name === 'codex-acp-2.5.0' ? Date.now() : 0,
+            mtimeMs: (o.acp ?? []).indexOf(name), // installed in list order, oldest first
             isLink: false,
           }))
         : [{ name: 'config.toml', kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false }],
@@ -456,16 +456,23 @@ test('the first codex run installs the pinned codex-acp with npm ci, no scripts 
   expect(spawns[0]?.argv.at(-1)).toBe(ENTRY)
 })
 
-test('a fresh install removes the codex-acp versions earlier releases installed, and nothing else', async ($, on) => {
+test('a fresh install keeps the release before it and removes older codex-acp versions, and nothing else', async ($, on) => {
   const nodes: string[][] = []
-  const acp = ['codex-acp-2.3.1-preview.9', 'codex-acp-2.5.0', INSTALL.split('/').at(-1) as string, 'latest', 'other-acp-1.0.0']
+  const acp = [
+    'codex-acp-2.3.0',
+    'codex-acp-2.3.1-preview.9',
+    'codex-acp-2.5.0',
+    INSTALL.split('/').at(-1) as string,
+    'latest',
+    'other-acp-1.0.0',
+  ]
   const { clock } = arrange(on, [], undefined, { uninstalled: true, nodes, acp })
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
   await runTurn($)
   await clock.settle()
   const removed = nodes.find((argv) => argv[1] === '-e')
-  // 2.5.0 was used just now, perhaps by another session still on that release: it stays.
-  expect(removed?.slice(3)).toEqual(['/home/u/.claude/via/acp/codex-acp-2.3.1-preview.9'])
+  // 2.5.0, the release before, stays for a session still running it.
+  expect(removed?.slice(3).sort()).toEqual(['/home/u/.claude/via/acp/codex-acp-2.3.0', '/home/u/.claude/via/acp/codex-acp-2.3.1-preview.9'])
 })
 
 test('an install already in place removes nothing', async ($, on) => {
