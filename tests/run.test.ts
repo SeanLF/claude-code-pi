@@ -1,10 +1,10 @@
 import type { TurnStepChunk, TurnStepResult } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { answerCall, CHILD_CALL, pump } from '../hooks/acp/steps'
+import { answerCall, CHILD_CALL, pump, waitStep } from '../hooks/acp/steps'
 import { pi } from '../hooks/adapters/pi'
 import { turnStep } from '../hooks/turn'
 import type { World } from '../hooks/world'
-import { arrange, bottom, ENV, expectPiSpawn, hang, lines, NODE, node, ROOT, run, type Spawn, STEP, split } from './helpers'
+import { arrange, bottom, ENV, expectPiSpawn, hang, lines, NODE, node, ROOT, run, runTurn, type Spawn, STEP, split } from './helpers'
 
 test('a pi run past the default 30 minutes is stopped with its partial answer, unsigned', async ($, on) => {
   const clock = mock.clock(on)
@@ -374,6 +374,7 @@ function fakeWorld(): World {
     modes: new Map(),
     agents: new Map([['a1', pi]]),
     others: new Set(),
+    lost: new Set(),
     inboxes: new Map(),
     descriptions: new Map(),
     activity: new Map(),
@@ -400,6 +401,9 @@ test('an aborted follow-up leaves no report for a step with no turn to repeat', 
     env: { get: async (name: string) => (name === 'HOME' ? ENV.HOME : undefined) },
     fs: { write: async () => undefined },
     clock: { after: () => ({ cancel: () => {} }) },
+    viaSteps: {
+      wait: ({ agentId, turnId }: { agentId: string; turnId: string }) => waitStep(world, agentId, turnId, () => ({ cancel: () => {} })),
+    },
     process: {
       run: async () => NODE,
       spawn: () => {
@@ -676,7 +680,7 @@ test('an Esc that finds the run parked between steps ends the run, so its harnes
   await Promise.resolve()
   expect(cleaned).toBe(true)
   // A step that still reads the ended run ends the turn, never spins on it.
-  const next = pump(w, job, { turnId: 't1', index: 1, agentId: 'a1' }, new AbortController().signal)
+  const next = pump(w, job, { turnId: 't1', index: 1, agentId: 'a1' }, new AbortController().signal, () => new Promise(() => {}))
   let r = await next.next()
   while (!r.done) r = await next.next()
   expect(r.value.stopReason).toBe('end_turn')
@@ -730,4 +734,34 @@ test("via settles only the mode's ask on its own Agent call: a deny or a rule's 
   expect((await check(`${CHILD_CALL}t1_1`)).decision).toBe('deny')
   verdict = { decision: 'ask', rule: 'Agent(*)' }
   expect((await check(`${CHILD_CALL}t1_1`)).decision).toBe('ask')
+})
+
+const piLines = (events: unknown[]) => `${events.map((e) => JSON.stringify(e)).join('\n')}\n`
+const START = { type: 'message_start', message: { role: 'assistant', provider: 'openrouter', model: 'kimi' } }
+const END = { type: 'message_end', message: { role: 'assistant', usage: { input: 3, output: 4, cacheRead: 1, cacheWrite: 2 } } }
+
+// Seen 2026-11-10 on codex: its last message, then a call its sandbox refused, then the end. Claude Code
+// takes the last step's text as the answer, and that step held only the signature.
+test("an answer said before the run's last call is said again in the last step", async ($, on) => {
+  const spawns: Spawn[] = []
+  const events = [
+    START,
+    { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'I need access to rex.' } },
+    { type: 'tool_execution_start', toolCallId: 'c1', toolName: 'bash', args: { command: 'rex whoami' } },
+    {
+      type: 'tool_execution_end',
+      toolCallId: 'c1',
+      toolName: 'bash',
+      isError: true,
+      result: { content: [{ type: 'text', text: 'denied' }] },
+    },
+    END,
+  ]
+  arrange(on, spawns, [{ stream: 'stdout', text: piLines(events) }])
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  const { chunks, result } = await runTurn($)
+  expect(result.answer).toBe('I need access to rex.\n\n— answered by pi, openrouter/kimi')
+  const lastCall = chunks.findLastIndex((c) => c.kind === 'tool')
+  const after = chunks.slice(lastCall + 1).map((c) => (c.kind === 'text' ? c.text : ''))
+  expect(after.join('')).toBe('I need access to rex.\n\n— answered by pi, openrouter/kimi')
 })

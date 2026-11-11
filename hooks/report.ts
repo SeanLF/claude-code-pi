@@ -18,6 +18,7 @@ export function finish(args: {
   readonly report: string
   readonly answeredBy: string
   readonly failure: string
+  readonly restate: boolean // the answer was said before the run's last call, so not in the last step
   readonly steered: number
   readonly inbox: Inbox | undefined
   readonly total: Totals
@@ -26,6 +27,7 @@ export function finish(args: {
   const name = args.adapter.name
   const chunks: TurnStepChunk[] = []
   let report = args.report
+  if (args.restate && !args.failure && report.trim()) chunks.push(args.push('text', report.trim()))
   if (args.stopped === 'limit') {
     const partial = report.trim()
     const notice = `${name} ran past ${args.timeoutMinutes} minutes and was stopped.`
