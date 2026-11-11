@@ -22,21 +22,37 @@ export type AgentRecord = {
 export type Records = {
   records: Map<string, AgentRecord>
   writing?: Promise<void> // one write at a time, or two spawns at once drop each other from the index
+  unsaved?: true // a store failure was logged: once per process
+  cleared?: true // 0.8's roster, under 'agents', is gone
 }
 
+// The store holds 4 MiB of JSON in all, shared with the model lists: KEPT agents with answers of at most
+// REPORT_KEPT characters stay well under it, so it cannot fill and stop saving.
 const INDEX = 'agent-ids'
-const KEPT = 200
+const KEPT = 50
+const REPORT_KEPT = 32_000
 const keyOf = (agentId: string) => `agent:${agentId}`
-type Store = Pick<EngineInterface, 'store'>
+type Store = Pick<EngineInterface, 'store' | 'ui'>
 
 const isRecord = (value: unknown): value is AgentRecord =>
   typeof value === 'object' && value !== null && typeof (value as AgentRecord).harness === 'string'
+
+// Said once: an agent resumed after a restart then has no record, and runs read-only without its answer.
+function unsaved(w: Records, $: Store, error: unknown): void {
+  if (w.unsaved) return
+  w.unsaved = true
+  try {
+    $.ui.log(
+      `via could not read or save its agent records (${String(error)}): an agent resumed after a restart runs read-only, without its last answer.`,
+    )
+  } catch {}
+}
 
 // From memory, or from the store for an agent another process spawned.
 export async function recordOf(w: Records, $: Store, agentId: string): Promise<AgentRecord | undefined> {
   const held = w.records.get(agentId)
   if (held !== undefined) return held
-  const stored = await $.store.get(keyOf(agentId)).catch(() => undefined)
+  const stored = await $.store.get(keyOf(agentId)).catch((error: unknown) => unsaved(w, $, error))
   if (!isRecord(stored)) return undefined
   // A spawn that landed while the store answered wins: it is newer.
   const raced = w.records.get(agentId)
@@ -45,20 +61,31 @@ export async function recordOf(w: Records, $: Store, agentId: string): Promise<A
   return stored
 }
 
-function persist(w: Records, write: () => Promise<void>): Promise<void> {
-  w.writing = (w.writing ?? Promise.resolve()).then(write).catch(() => undefined)
+function persist(w: Records, $: Store, write: () => Promise<void>): Promise<void> {
+  w.writing = (w.writing ?? Promise.resolve()).then(write).catch((error: unknown) => unsaved(w, $, error))
   return w.writing
 }
 
+// As stored: a long answer keeps its end, where the signature and any failure are.
+function stored(record: AgentRecord): AgentRecord {
+  const report = record.report
+  if (report === undefined || report.length <= REPORT_KEPT) return { ...record }
+  return { ...record, report: `[earlier part cut; the whole answer is in the transcript]\n…${report.slice(-REPORT_KEPT)}` }
+}
+
 // A new agent: in memory at once, so a first step that runs before the store answers still sees it. The
-// newest KEPT stay in the store.
+// newest KEPT stay in the store. A failed index read aborts the write rather than lose the index.
 export function createRecord(w: Records, $: Store, agentId: string, record: AgentRecord): Promise<void> {
   w.records.set(agentId, record)
-  return persist(w, async () => {
-    const listed = await $.store.get(INDEX).catch(() => undefined)
+  return persist(w, $, async () => {
+    if (!w.cleared) {
+      w.cleared = true
+      await $.store.delete('agents').catch(() => undefined)
+    }
+    const listed = await $.store.get(INDEX)
     const ids = [...(Array.isArray(listed) ? listed.filter((id): id is string => typeof id === 'string' && id !== agentId) : []), agentId]
     for (const old of ids.splice(0, Math.max(0, ids.length - KEPT))) await $.store.delete(keyOf(old)).catch(() => undefined)
-    await $.store.set(keyOf(agentId), record)
+    await $.store.set(keyOf(agentId), stored(record))
     await $.store.set(INDEX, ids)
   })
 }
@@ -69,6 +96,6 @@ export function updateRecord(w: Records, $: Store, agentId: string, change: Part
   if (held === undefined) return Promise.resolve()
   Object.assign(held, change)
   if (held.rebuilt) return Promise.resolve()
-  const snapshot = { ...held }
-  return persist(w, () => $.store.set(keyOf(agentId), snapshot))
+  const snapshot = stored(held)
+  return persist(w, $, () => $.store.set(keyOf(agentId), snapshot))
 }

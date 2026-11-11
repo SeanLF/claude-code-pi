@@ -325,7 +325,8 @@ async function* drive(w: World, $: EngineInterface, d: Drive): AsyncGenerator<Tu
     block = result.block
   }
   if (result.aborted) return yield* respond(e, [{ kind: 'stop', stopReason: 'end_turn', usage: null }], '')
-  const handback = await handbackOf($, agentId, record)
+  // The run has answered: a transcript that cannot be read must not cost the answer.
+  const handback = await handbackOf($, agentId, record).catch(() => record.handback)
   turn.done = true
   await updateRecord(w, $, agentId, { report: result.signed, handedBack: handback })
   if (handback) return yield* deliver(adapter.name, e, result.block, result.signed, result.usage)
