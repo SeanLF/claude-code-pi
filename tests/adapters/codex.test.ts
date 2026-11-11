@@ -294,6 +294,34 @@ test('the session id is saved, and a follow-up resumes it without replaying its 
   expect(spawns[1]?.env?.RELAY_SESSION).toBe(SID)
 })
 
+// Seen live 2026-11-11: a SendMessage to an answered agent resumes it through agent.spawn, which must keep
+// the session and the model its first turn chose.
+test("a resumed agent keeps its session and model: a resume's spawn is the same agent", async ($, on) => {
+  const spawns: Spawn[] = []
+  arrange(on, spawns)
+  on('agent.spawn', () => ({ model: 'codex', agentId: 'a1' }))
+  const spawn = (resume?: true) =>
+    $.agent.spawn({
+      tool_use_id: resume ? 'toolu_resume' : 'toolu_first',
+      subagentType: 'via:codex',
+      prompt: resume ? 'and again' : 'model: gpt-6-luna\ngo',
+      description: 'd',
+      provider: { plugin: 'engine', tier: 'core' },
+      parentModel: 'haiku',
+      background: true,
+      fork: false,
+      ...(resume ? { resume: { agentId: 'a1' } } : {}),
+    })
+  await spawn()
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'model: gpt-6-luna\ngo' })
+  await runTurn($)
+  await spawn(true)
+  await $.turn.start({ turnId: 't2', agentId: 'a1', text: 'and again' })
+  await runTurn($, { ...STEP, turnId: 't2', messageCount: 2 })
+  expect(spawns[1]?.env?.RELAY_SESSION).toBe(SID)
+  expect(spawns[1]?.env?.RELAY_MODEL ?? spawns[1]?.argv.join(' ')).toContain('gpt-6-luna')
+})
+
 test('only read-only sets a codex mode; otherwise the permission mode decides how its own questions are answered', () => {
   // Never codex-acp's own default, auto review, which approves escalations itself.
   expect(codexMode({}, 'default')).toEqual({ agentMode: 'workspace-write', policy: 'ask' })

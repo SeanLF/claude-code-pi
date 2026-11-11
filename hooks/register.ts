@@ -7,7 +7,7 @@ import { respond, textChunks } from './handback'
 import { HARNESSES } from './harnesses'
 import { cachedModels, refreshModels } from './models'
 import { descriptionOf, isModel, promptOf } from './prompt'
-import { createRecord, updateRecord } from './record'
+import { createRecord, recordOf, updateRecord } from './record'
 import { notActivePrompt } from './run'
 import { sendMessage, steer, typed } from './steer'
 import { adapterOf, turnStep } from './turn'
@@ -240,12 +240,13 @@ export const register: Register = (on, options) => {
       world.seeds.set(started.agentId, e.prompt)
       // agent.list may lag the first step, so the harness is learned at the spawn. mode: what the person
       // allows Claude itself, which a harness maps to its own modes.
-      await createRecord(world, $, started.agentId, {
-        harness: adapter.name,
-        handback: handsBack(e),
-        mode: e.permissionMode ?? 'default',
-        description: e.description,
-      })
+      // A resume, or a teammate brought back, is the same agent: its session, choice and answer stay, and only
+      // the spawn's terms are new.
+      const terms = { harness: adapter.name, handback: handsBack(e), mode: e.permissionMode ?? 'default' }
+      const kept = await recordOf(world, $, started.agentId)
+      if (kept !== undefined && !kept.rebuilt)
+        await updateRecord(world, $, started.agentId, { ...terms, description: e.description || kept.description })
+      else await createRecord(world, $, started.agentId, { ...terms, description: e.description })
     }
     return started
   })
