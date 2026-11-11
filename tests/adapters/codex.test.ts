@@ -319,7 +319,7 @@ test("a resumed agent keeps its session and model: a resume's spawn is the same 
   await $.turn.start({ turnId: 't2', agentId: 'a1', text: 'and again' })
   await runTurn($, { ...STEP, turnId: 't2', messageCount: 2 })
   expect(spawns[1]?.env?.RELAY_SESSION).toBe(SID)
-  expect(spawns[1]?.env?.RELAY_MODEL ?? spawns[1]?.argv.join(' ')).toContain('gpt-6-luna')
+  expect(spawns[1]?.env?.RELAY_MODEL).toBe('gpt-6-luna')
 })
 
 test('only read-only sets a codex mode; otherwise the permission mode decides how its own questions are answered', () => {
