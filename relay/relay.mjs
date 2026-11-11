@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/index.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/index.js
 var AGENT_METHODS = {
   initialize: "initialize",
   authenticate: "authenticate",
@@ -27,9 +27,15 @@ var AGENT_METHODS = {
   session_list: "session/list",
   session_delete: "session/delete",
   session_fork: "session/fork",
+  session_archive: "session/archive",
+  session_unarchive: "session/unarchive",
+  session_status: "session/status",
+  session_options: "session/options",
+  session_set_title: "session/set_title",
   session_resume: "session/resume",
   session_close: "session/close",
-  logout: "logout"
+  logout: "logout",
+  auth_status: "auth/status"
 };
 var CLIENT_METHODS = {
   session_request_permission: "session/request_permission",
@@ -43,7 +49,8 @@ var CLIENT_METHODS = {
   terminal_kill: "terminal/kill",
   mcp_message: "mcp/message",
   elicitation_create: "elicitation/create",
-  elicitation_complete: "elicitation/complete"
+  elicitation_complete: "elicitation/complete",
+  auth_status_update: "auth/status_update"
 };
 var PROTOCOL_METHODS = {
   cancel_request: "$/cancel_request"
@@ -6322,7 +6329,7 @@ function preprocess(fn, schema) {
   });
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/schema-deserialize.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/schema-deserialize.js
 var skippedItem = /* @__PURE__ */ Symbol("skippedItem");
 function defaultOnError(schema, fallback) {
   return schema.catch(fallback);
@@ -6408,7 +6415,7 @@ function wideInt() {
   });
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/zod.gen.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/zod.gen.js
 var zRequestId = union([wideInt(), string2()]).nullable();
 var zSessionId = string2();
 var zWriteTextFileRequest = object({
@@ -6535,6 +6542,10 @@ var zTerminal = object({
   terminalId: zTerminalId,
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
+var zSessionReference = object({
+  sessionId: zSessionId,
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
 var zToolCallContent = union([
   zContent.and(object({
     type: literal("content")
@@ -6544,6 +6555,9 @@ var zToolCallContent = union([
   })),
   zTerminal.and(object({
     type: literal("terminal")
+  })),
+  zSessionReference.and(object({
+    type: literal("session")
   }))
 ]);
 var zToolCallLocation = object({
@@ -6815,6 +6829,18 @@ var zSessionSystemPromptCapabilities = object({
 var zSessionForkCapabilities = object({
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
+var zSessionArchiveCapabilities = object({
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zSessionStatusCapabilities = object({
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zSessionOptionsCapabilities = object({
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zSessionTitleCapabilities = object({
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
 var zSessionResumeCapabilities = object({
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
@@ -6827,14 +6853,22 @@ var zSessionCapabilities = object({
   additionalDirectories: defaultOnError(zSessionAdditionalDirectoriesCapabilities.nullish(), () => void 0),
   systemPrompt: defaultOnError(zSessionSystemPromptCapabilities.nullish(), () => void 0),
   fork: defaultOnError(zSessionForkCapabilities.nullish(), () => void 0),
+  archive: defaultOnError(zSessionArchiveCapabilities.nullish(), () => void 0),
+  status: defaultOnError(zSessionStatusCapabilities.nullish(), () => void 0),
+  options: defaultOnError(zSessionOptionsCapabilities.nullish(), () => void 0),
+  title: defaultOnError(zSessionTitleCapabilities.nullish(), () => void 0),
   resume: defaultOnError(zSessionResumeCapabilities.nullish(), () => void 0),
   close: defaultOnError(zSessionCloseCapabilities.nullish(), () => void 0),
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zAuthStatusCapabilities = object({
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zLogoutCapabilities = object({
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zAgentAuthCapabilities = object({
+  status: defaultOnError(zAuthStatusCapabilities.nullish(), () => void 0),
   logout: defaultOnError(zLogoutCapabilities.nullish(), () => void 0),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
@@ -6965,6 +6999,27 @@ var zDisableProviderResponse = object({
 var zLogoutResponse = object({
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
+var zAuthState = union([
+  literal("authenticated"),
+  literal("unauthenticated"),
+  literal("not_required"),
+  literal("unknown"),
+  string2()
+]);
+var zAuthAccount = object({
+  label: string2(),
+  description: defaultOnError(string2().nullish(), () => void 0),
+  active: defaultOnError(boolean2().nullish(), () => void 0),
+  name: defaultOnError(string2().nullish(), () => void 0),
+  email: defaultOnError(string2().nullish(), () => void 0),
+  organization: defaultOnError(string2().nullish(), () => void 0),
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zAuthStatusResponse = object({
+  state: zAuthState,
+  accounts: defaultOnError(vecSkipError(zAuthAccount).optional(), () => []),
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
 var zSessionModeId = string2();
 var zSessionMode = object({
   id: zSessionModeId,
@@ -7041,6 +7096,7 @@ var zSessionInfo = object({
   additionalDirectories: defaultOnError(vecSkipError(string2()).optional(), () => []),
   title: defaultOnError(string2().nullish(), () => void 0),
   updatedAt: defaultOnError(string2().nullish(), () => void 0),
+  archived: defaultOnError(boolean2().nullish(), () => void 0),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zListSessionsResponse = object({
@@ -7055,6 +7111,30 @@ var zForkSessionResponse = object({
   sessionId: zSessionId,
   modes: defaultOnError(zSessionModeState.nullish(), () => void 0),
   configOptions: defaultOnError(vecSkipError(zSessionConfigOption).nullish(), () => void 0),
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zArchiveSessionResponse = object({
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zUnarchiveSessionResponse = object({
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zSessionStatus = union([
+  literal("open"),
+  literal("saved"),
+  string2()
+]);
+var zSessionStatusResponse = object({
+  status: zSessionStatus,
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zSessionOptionsResponse = object({
+  modes: defaultOnError(zSessionModeState.nullish(), () => void 0),
+  configOptions: defaultOnError(vecSkipError(zSessionConfigOption).nullish(), () => void 0),
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zSetSessionTitleResponse = object({
+  title: string2(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zResumeSessionResponse = object({
@@ -7124,11 +7204,17 @@ var zAgentResponse = union([
       zSetProviderResponse,
       zDisableProviderResponse,
       zLogoutResponse,
+      zAuthStatusResponse,
       zNewSessionResponse,
       zLoadSessionResponse,
       zListSessionsResponse,
       zDeleteSessionResponse,
       zForkSessionResponse,
+      zArchiveSessionResponse,
+      zUnarchiveSessionResponse,
+      zSessionStatusResponse,
+      zSessionOptionsResponse,
+      zSetSessionTitleResponse,
       zResumeSessionResponse,
       zCloseSessionResponse,
       zSetSessionModeResponse,
@@ -7458,12 +7544,18 @@ var zCompleteElicitationNotification = object({
   elicitationId: zElicitationId,
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
+var zAuthStatusUpdateNotification = object({
+  state: zAuthState,
+  accounts: defaultOnError(vecSkipError(zAuthAccount).optional(), () => []),
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
 var zExtNotification = unknown();
 var zAgentNotification = object({
   method: string2(),
   params: union([
     zSessionNotification,
     zCompleteElicitationNotification,
+    zAuthStatusUpdateNotification,
     zExtNotification
   ]).nullish()
 });
@@ -7553,6 +7645,9 @@ var zDisableProviderRequest = object({
 var zLogoutRequest = object({
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
+var zAuthStatusRequest = object({
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
 var zHttpHeader = object({
   name: string2(),
   value: string2(),
@@ -7604,11 +7699,24 @@ var zSystemPrompt = object({
   content: array(zContentBlock),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
+var zInitialSessionConfigOption = intersection(union([
+  object({
+    type: literal("boolean"),
+    value: boolean2()
+  }),
+  object({
+    value: zSessionConfigValueId
+  })
+]), object({
+  configId: zSessionConfigId,
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+}));
 var zNewSessionRequest = object({
   cwd: string2(),
   additionalDirectories: defaultOnNull(array(string2()), () => []).optional(),
   mcpServers: defaultOnNull(array(zMcpServer), () => []),
   systemPrompt: zSystemPrompt.nullish(),
+  configOptions: defaultOnNull(array(zInitialSessionConfigOption), () => []).optional(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zLoadSessionRequest = object({
@@ -7617,11 +7725,19 @@ var zLoadSessionRequest = object({
   additionalDirectories: defaultOnNull(array(string2()), () => []).optional(),
   sessionId: zSessionId,
   systemPrompt: zSystemPrompt.nullish(),
+  configOptions: defaultOnNull(array(zInitialSessionConfigOption), () => []).optional(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
+var zSessionArchiveFilter = union([
+  literal("exclude"),
+  literal("include"),
+  literal("only"),
+  string2()
+]);
 var zListSessionsRequest = object({
   cwd: string2().nullish(),
   cursor: string2().nullish(),
+  archived: zSessionArchiveFilter.nullish(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zDeleteSessionRequest = object({
@@ -7636,12 +7752,36 @@ var zForkSessionRequest = object({
   systemPrompt: zSystemPrompt.nullish(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
+var zArchiveSessionRequest = object({
+  sessionId: zSessionId,
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zUnarchiveSessionRequest = object({
+  sessionId: zSessionId,
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zSessionStatusRequest = object({
+  sessionId: zSessionId,
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zSessionOptionsRequest = object({
+  cwd: string2(),
+  additionalDirectories: defaultOnNull(array(string2()), () => []).optional(),
+  sessionId: zSessionId.nullish(),
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zSetSessionTitleRequest = object({
+  sessionId: zSessionId,
+  title: string2(),
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
 var zResumeSessionRequest = object({
   sessionId: zSessionId,
   cwd: string2(),
   additionalDirectories: defaultOnNull(array(string2()), () => []).optional(),
   mcpServers: defaultOnNull(array(zMcpServer), () => []).optional(),
   systemPrompt: zSystemPrompt.nullish(),
+  configOptions: defaultOnNull(array(zInitialSessionConfigOption), () => []).optional(),
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
 var zCloseSessionRequest = object({
@@ -7681,11 +7821,17 @@ var zClientRequest = object({
     zSetProviderRequest,
     zDisableProviderRequest,
     zLogoutRequest,
+    zAuthStatusRequest,
     zNewSessionRequest,
     zLoadSessionRequest,
     zListSessionsRequest,
     zDeleteSessionRequest,
     zForkSessionRequest,
+    zArchiveSessionRequest,
+    zUnarchiveSessionRequest,
+    zSessionStatusRequest,
+    zSessionOptionsRequest,
+    zSetSessionTitleRequest,
     zResumeSessionRequest,
     zCloseSessionRequest,
     zSetSessionModeRequest,
@@ -7833,8 +7979,40 @@ var zCancelRequestNotification = object({
   requestId: zRequestId,
   _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
 });
+var zInitializeProxyRequest = zInitializeRequest;
+var zProxySuccessorRequest = object({
+  method: string2(),
+  params: unknown().optional(),
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zProxyRequest = object({
+  id: zRequestId,
+  method: string2(),
+  params: union([zInitializeProxyRequest, zProxySuccessorRequest]).nullish()
+});
+var zInitializeProxyResponse = zInitializeResponse;
+var zProxySuccessorResponse = unknown();
+var zProxyResponse = union([
+  object({
+    id: zRequestId,
+    result: union([zInitializeProxyResponse, zProxySuccessorResponse])
+  }),
+  object({
+    id: zRequestId,
+    error: zError
+  })
+]);
+var zProxySuccessorNotification = object({
+  method: string2(),
+  params: unknown().optional(),
+  _meta: defaultOnError(record(string2(), unknown()).nullish(), () => void 0)
+});
+var zProxyNotification = object({
+  method: string2(),
+  params: zProxySuccessorNotification.nullish()
+});
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/jsonrpc.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/jsonrpc.js
 var CANCEL_REQUEST_METHOD = "$/cancel_request";
 function treatSessionNotFoundAsSuccess(method, response, success) {
   if (method !== "session/close" && method !== "session/delete") {
@@ -8231,6 +8409,10 @@ var Connection = class {
         pendingResponse.cleanup?.();
         void this.sendCancelRequest(id).catch(() => {
         });
+        if (options.stopWaitingOnCancel) {
+          pendingResponse.abandoned = true;
+          reject(requestCancelledError(options.cancellationSignal?.reason));
+        }
       };
       options.cancellationSignal?.addEventListener("abort", cancel2, {
         once: true
@@ -8437,6 +8619,9 @@ var Connection = class {
     if (pendingResponse) {
       this.pendingResponses.delete(response.id);
       pendingResponse.cleanup?.();
+      if (pendingResponse.abandoned) {
+        return;
+      }
       if (!isResponseMessage(response)) {
         pendingResponse.reject(RequestError.invalidRequest(response));
       } else if ("result" in response) {
@@ -8695,7 +8880,7 @@ function protocolErrorResponse(error2) {
   };
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream-limits.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream-limits.js
 var DEFAULT_MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
 var MessageTooLargeError = class extends Error {
   maxMessageBytes;
@@ -8754,7 +8939,7 @@ var MessageBuffer = class {
   }
 };
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/line-buffer.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/line-buffer.js
 var newline = 10;
 var carriageReturn = 13;
 var LineBuffer = class {
@@ -8841,7 +9026,7 @@ function stripCarriageReturn(line) {
   return line[line.byteLength - 1] === carriageReturn ? line.subarray(0, -1) : line;
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream.js
 function ndJsonStream(output, input, options = {}) {
   const maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes);
   const textEncoder = new TextEncoder();
@@ -8947,7 +9132,7 @@ function ndJsonStream(output, input, options = {}) {
   return { readable, writable };
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/guards.gen.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/guards.gen.js
 var zGuardCreateElicitationRequestForm = zElicitationFormMode.and(object({ mode: literal("form") })).and(object({ message: string2() }));
 var zGuardCreateElicitationRequestUrl = zElicitationUrlMode.and(object({ mode: literal("url") })).and(object({ message: string2() }));
 var zGuardCreateElicitationRequestCustom = union([zElicitationSessionScope, zElicitationRequestScope]).and(object({ message: string2() }));
@@ -8986,7 +9171,7 @@ var zGuardCreateElicitationResponseCancel = object({
   action: literal("cancel")
 });
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/app-handlers.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/app-handlers.js
 function parseParams(parser, params) {
   if (!parser) {
     return params;
@@ -9036,10 +9221,10 @@ function registerAppNotification(builder, spec, context, handler) {
   }
 }
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/connection-access.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/connection-access.js
 var connectionContextOf = /* @__PURE__ */ Symbol("connectionContextOf");
 
-// node_modules/.pnpm/@agentclientprotocol+sdk@2.2.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/acp.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/acp.js
 function ndJsonStream2(output, input, options) {
   return ndJsonStream(output, input, options);
 }
@@ -9092,6 +9277,9 @@ var methods = {
     initialize: AGENT_METHODS.initialize,
     authenticate: AGENT_METHODS.authenticate,
     logout: AGENT_METHODS.logout,
+    auth: {
+      status: AGENT_METHODS.auth_status
+    },
     providers: {
       list: AGENT_METHODS.providers_list,
       set: AGENT_METHODS.providers_set,
@@ -9103,6 +9291,11 @@ var methods = {
       list: AGENT_METHODS.session_list,
       delete: AGENT_METHODS.session_delete,
       fork: AGENT_METHODS.session_fork,
+      archive: AGENT_METHODS.session_archive,
+      unarchive: AGENT_METHODS.session_unarchive,
+      status: AGENT_METHODS.session_status,
+      options: AGENT_METHODS.session_options,
+      setTitle: AGENT_METHODS.session_set_title,
       resume: AGENT_METHODS.session_resume,
       close: AGENT_METHODS.session_close,
       setMode: AGENT_METHODS.session_set_mode,
@@ -9136,6 +9329,9 @@ var methods = {
     elicitation: {
       create: CLIENT_METHODS.elicitation_create,
       complete: CLIENT_METHODS.elicitation_complete
+    },
+    auth: {
+      statusUpdate: CLIENT_METHODS.auth_status_update
     }
   },
   protocol: {
@@ -9591,6 +9787,11 @@ var agentRequestSpecs = {
   unstable_forkSession: requestSpec(AGENT_METHODS.session_fork, zForkSessionRequest),
   listSessions: requestSpec(AGENT_METHODS.session_list, zListSessionsRequest),
   deleteSession: requestSpec(AGENT_METHODS.session_delete, zDeleteSessionRequest, emptyObjectResponse),
+  unstable_archiveSession: requestSpec(AGENT_METHODS.session_archive, zArchiveSessionRequest, emptyObjectResponse),
+  unstable_unarchiveSession: requestSpec(AGENT_METHODS.session_unarchive, zUnarchiveSessionRequest, emptyObjectResponse),
+  unstable_sessionStatus: requestSpec(AGENT_METHODS.session_status, zSessionStatusRequest),
+  unstable_sessionOptions: requestSpec(AGENT_METHODS.session_options, zSessionOptionsRequest),
+  unstable_setSessionTitle: requestSpec(AGENT_METHODS.session_set_title, zSetSessionTitleRequest),
   resumeSession: requestSpec(AGENT_METHODS.session_resume, zResumeSessionRequest),
   closeSession: requestSpec(AGENT_METHODS.session_close, zCloseSessionRequest, emptyObjectResponse),
   setSessionMode: requestSpec(AGENT_METHODS.session_set_mode, zSetSessionModeRequest, emptyObjectResponse),
@@ -9600,6 +9801,7 @@ var agentRequestSpecs = {
   unstable_setProvider: requestSpec(AGENT_METHODS.providers_set, zSetProviderRequest, emptyObjectResponse),
   unstable_disableProvider: requestSpec(AGENT_METHODS.providers_disable, zDisableProviderRequest, emptyObjectResponse),
   logout: requestSpec(AGENT_METHODS.logout, zLogoutRequest, emptyObjectResponse),
+  unstable_authStatus: requestSpec(AGENT_METHODS.auth_status, zAuthStatusRequest),
   prompt: requestSpec(AGENT_METHODS.session_prompt, zPromptRequest)
 };
 var agentNotificationSpecs = {
@@ -9620,7 +9822,8 @@ var clientRequestSpecs = {
 };
 var clientNotificationSpecs = {
   sessionUpdate: notificationSpec(CLIENT_METHODS.session_update, zSessionNotification),
-  completeElicitation: notificationSpec(CLIENT_METHODS.elicitation_complete, zCompleteElicitationNotification)
+  completeElicitation: notificationSpec(CLIENT_METHODS.elicitation_complete, zCompleteElicitationNotification),
+  unstable_authStatusUpdate: notificationSpec(CLIENT_METHODS.auth_status_update, zAuthStatusUpdateNotification)
 };
 var agentRequestSpecsByMethod = specsByMethod(agentRequestSpecs);
 var agentNotificationSpecsByMethod = specsByMethod(agentNotificationSpecs);

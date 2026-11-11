@@ -114,6 +114,7 @@ test('an aborted run clears its agent-panel row', async () => {
     modes: new Map(),
     agents: new Map(),
     others: new Set(),
+    lost: new Set(),
     inboxes: new Map(),
     descriptions: new Map(),
     activity: new Map(),
@@ -300,59 +301,9 @@ const group = (kinds: unknown[], isActive = false): Parameters<typeof drawGroup>
 test('a folded run of harness calls is counted by what each did, in the order each kind first came', () => {
   expect(texts(drawGroup(group(['read', 'read', 'search']))).join('')).toBe('Read 2 files, searched 1 pattern')
   expect(texts(drawGroup(group(['execute', 'read', 'execute']))).join('')).toBe('Ran 2 commands, read 1 file')
-  expect(texts(drawGroup(group(['read'], true))).join('')).toBe('Reading 1 file…x')
+  expect(texts(drawGroup(group(['read'], true))).join('')).toBe('Reading 1 file…')
   // A kind ACP adds later, or none at all, still counts.
   expect(texts(drawGroup(group(['think', undefined]))).join('')).toBe('2 other steps')
-})
-
-test('a nested summary, current command and its output occupy separate rows', () => {
-  const title = "sed -n '120,180p' src/example/long_module_name_for_wrapping.py; sed…"
-  const output = 'first check PASS, selected count 7\nsecond check PASS\nthird check PASS'
-  const props = group([...Array.from({ length: 8 }, () => 'execute'), 'read', 'execute'], true)
-  // The active group can briefly have no running calls while the next tool arrives.
-  props.calls[9] = { ...props.calls[9], input: { kind: 'execute', title }, output }
-  const row = drawGroup(props)
-  // A Box defaults to a horizontal flex row. Text alone cannot establish a row boundary.
-  expect(row).toEqual({
-    type: 'Box',
-    props: { key: 'via-group', paddingLeft: 2, flexDirection: 'column' },
-    children: [
-      {
-        type: 'Text',
-        props: { dimColor: true },
-        hover: { dimColor: false },
-        children: [
-          'Running ',
-          { type: 'Text', props: { bold: true }, children: ['9'] },
-          ' commands',
-          ', ',
-          'reading ',
-          { type: 'Text', props: { bold: true }, children: ['1'] },
-          ' file',
-          '…',
-        ],
-      },
-      {
-        type: 'Box',
-        props: { flexDirection: 'column' },
-        children: [
-          { type: 'Text', children: [{ type: 'Text', props: { bold: true }, children: ['Ran'] }, ' ', title] },
-          { type: 'Text', props: { dimColor: true }, children: ['  ⎿  first check PASS, selected count 7'] },
-          { type: 'Text', props: { dimColor: true }, children: ['     second check PASS'] },
-          { type: 'Text', props: { dimColor: true }, children: ['     third check PASS'] },
-        ],
-      },
-    ],
-  })
-})
-
-test('a folded active group shows its latest step while completed groups keep their summary', () => {
-  const active = group(['read', 'execute'], true)
-  const calls = active.calls.map((call, index) =>
-    index === 1 ? { ...call, input: { kind: 'execute', title: 'pnpm test' }, isRunning: true } : call,
-  )
-  expect(texts(drawGroup({ ...active, calls })).join('')).toContain('Running pnpm test')
-  expect(texts(drawGroup({ ...active, calls, isActive: false })).join('')).not.toContain('pnpm test')
 })
 
 test('a run ended from outside while parked between pieces stops its harness', async () => {

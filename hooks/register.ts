@@ -3,12 +3,13 @@ import { drawCall, drawGroup } from './acp/render'
 import { answerCall, CHILD_CALL, endJob, waitStep } from './acp/steps'
 import type { Adapter } from './adapter'
 import { waitChild, woken } from './children'
+import { respond, textChunks } from './handback'
 import { HARNESSES } from './harnesses'
 import { cachedModels, refreshModels } from './models'
 import { descriptionOf, isModel, promptOf } from './prompt'
 import { notActivePrompt } from './run'
 import { sendMessage, steer, typed } from './steer'
-import { adapterOf, remember, turnStep } from './turn'
+import { adapterOf, remember, saveNested, turnStep } from './turn'
 import type { World } from './world'
 
 // Only harnesses installed at session start get an agent type: each description rides on every request.
@@ -115,6 +116,7 @@ export const register: Register = (on, options) => {
     modes: new Map(),
     agents: new Map(),
     others: new Set(),
+    lost: new Set(),
     inboxes: new Map(),
     descriptions: new Map(),
     activity: new Map(),
@@ -205,19 +207,15 @@ export const register: Register = (on, options) => {
         if (channel) channel.read = true
         return { deny: "via shows a harness's subagent only as a background agent, and background tasks are off" }
       }
-      const channel = world.channels.get(key)
-      const model = channel?.model
-      const title = channel?.title ?? e.description
-      const started = await next({
-        ...e,
-        prompt: channel?.description ?? e.prompt,
-        model: model ?? adapter.name,
-        description: model ? `${title} · ${model}` : title,
-      })
+      const model = world.channels.get(key)?.model
+      const started = await next({ ...e, model: model ?? adapter.name, ...(model ? { description: `${e.description} · ${model}` } : {}) })
       if (started.agentId) {
         world.agents.set(started.agentId, adapter)
         world.nested.set(started.agentId, { key })
         world.handbacks.set(started.agentId, e.permissionMode === 'auto')
+        // Persisted: a new process (a session sent to the background) resumes it as general-purpose, and
+        // without this its step would go to Claude under the harness's model name.
+        await remember(world, $, started.agentId, { harness: adapter.name, handback: e.permissionMode === 'auto', nested: true })
       }
       return started
     }
@@ -312,5 +310,23 @@ export const register: Register = (on, options) => {
 
   on('turn.step', async function* ($, e, next) {
     return yield* turnStep(world, $, e, next)
+  }).catch(async function* ($, e, next) {
+    // A via step that throws would otherwise be skipped, and the request would go to the model with the
+    // harness's model id. End the via turn with an explicit failure instead.
+    // world.agents: turnStep's adapterOf filled it before anything that can throw.
+    const agentId = e.agentId
+    const adapter = agentId === undefined ? undefined : world.agents.get(agentId)
+    if (agentId === undefined || !adapter) return yield* next(e)
+    const why = next.error.message ? `${next.error.kind}: ${next.error.message}` : next.error.kind
+    $.ui.log(`via's step for ${adapter.name} failed (${why})`)
+    endJob(world, agentId)
+    const nested = world.nested.get(agentId)
+    const report = `The ${adapter.name}${nested ? ' subagent' : ''} failed: via could not render its next step.`
+    if (nested) {
+      nested.report = report
+      // Saved, or a new process says the run was cut off, not that it failed.
+      await saveNested(world, $, agentId, report)
+    }
+    return yield* respond(e, textChunks(report), report)
   })
 }

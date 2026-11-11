@@ -12,9 +12,8 @@ type Queued = Norm | { readonly k: 'end'; readonly failure?: string } | { readon
 export type Channel = {
   readonly key: string // this assignment's: a child's work after an end is a new nested agent
   readonly type: string // the nested agent's subagent_type
-  title: string
-  description?: string
-  readonly parent?: string
+  readonly title: string
+  readonly description?: string
   model?: string
   readonly queue: Queued[]
   wake?: () => void
@@ -45,18 +44,15 @@ export function route(w: Children, agentId: string, type: string, event: Extract
   // clears its cancel capability after it goes idle). Work after an end is a new assignment of the same
   // child: a new nested agent, as Claude Code shows one; its model snapshot is not work.
   const working = (event.k === 'of' && event.norm.k !== 'model') || (event.k === 'child' && event.state === 'running')
-  const announced = event.k === 'child' && (event.title !== undefined || event.description !== undefined)
+  const announced = event.k === 'child' && event.title !== undefined
   if (channel === undefined ? working || announced || event.k === 'of' : channel.ended && working) {
     const title = (event.k === 'child' ? event.title : undefined) ?? channel?.title ?? 'subagent'
-    const description =
-      event.k === 'child' ? (event.description ?? channel?.description) : event.norm.k === 'user' ? event.norm.t : channel?.description
-    const parentId = event.k === 'child' ? event.parent : channel?.parent
+    const description = event.k === 'child' ? event.description : channel?.description
     const assignment = `${key(id)}#${channel ? Number(channel.key.slice(channel.key.lastIndexOf('#') + 1)) + 1 : 1}`
     channel = {
       key: assignment,
       type,
       title,
-      ...(parentId ? { parent: parentId } : {}),
       ...(description ? { description } : {}),
       queue: [],
       spawned: true,
@@ -66,23 +62,17 @@ export function route(w: Children, agentId: string, type: string, event: Extract
     }
     w.channels.set(key(id), channel)
     w.channels.set(assignment, channel)
-    const parent = parentId ? w.channels.get(key(parentId)) : undefined
+    const parent = event.k === 'child' ? w.channels.get(key(event.parent)) : undefined
     if (parent !== undefined) put(parent, { k: 'spawn', child: assignment })
     else marks.push({ kind: 'spawn', child: assignment, type, title, ...(description ? { description } : {}) })
-    // The opening user message is already the native Agent prompt for this assignment.
-    if (event.k === 'of' && event.norm.k === 'user') return marks
   }
   if (channel === undefined) return marks
   if (event.k === 'of') {
     if (event.norm.k === 'model') channel.model = event.norm.name
     put(channel, event.norm)
-  } else {
-    if (event.title) channel.title = event.title
-    if (event.description !== undefined) channel.description = event.description
-    if (event.state === 'idle' && !channel.ended) {
-      channel.ended = true
-      put(channel, { k: 'end', ...(event.failure ? { failure: event.failure } : {}) })
-    }
+  } else if (event.state === 'idle' && !channel.ended) {
+    channel.ended = true
+    put(channel, { k: 'end', ...(event.failure ? { failure: event.failure } : {}) })
   }
   return marks
 }
@@ -180,6 +170,9 @@ export async function* childRun(
   let plan = ''
   let plans = 0
   let failure: string | undefined
+  // Text since the last call or spawn, each of which ends a step: an answer said before them is said
+  // again at the end, or the last step holds only the signature (Claude Code's answer is its text).
+  let spoke = false
   const push = (k: 'text' | 'thinking', text: string): TurnStepChunk => {
     if (kind !== k) {
       kind = k
@@ -206,7 +199,7 @@ export async function* childRun(
       continue
     }
     if (item.k === 'end') {
-      failure = item.failure
+      failure = item.failure ?? failure
       // Kept while the run goes on, so its late patches are known as this child's, not a new one.
       if (channel) channel.read = true
       if (channel?.closed) for (const [key, held] of w.channels) if (held === channel) w.channels.delete(key)
@@ -215,6 +208,7 @@ export async function* childRun(
     if (item.k === 'spawn') {
       const grand = w.channels.get(item.child)
       kind = undefined
+      spoke = false
       if (grand)
         yield {
           kind: 'spawn',
@@ -223,29 +217,27 @@ export async function* childRun(
           title: grand.title,
           ...(grand.description ? { description: grand.description } : {}),
         }
-    } else if (item.k === 'user') {
-      report = ''
-      kind = undefined
-      yield { kind: 'user', text: item.t }
     } else if (item.k === 'message') {
       report = ''
       kind = undefined
     } else if (item.k === 'text') {
       report += item.t
+      spoke = true
       yield push('text', item.t)
     } else if (item.k === 'thinking') yield push('thinking', item.t)
     else if (item.k === 'plan') {
-      // The same changed-plan row the top-level run shows, separate from the child's answer.
       const listed = item.entries.map((entry) => `${PLAN_MARKS[entry.status] ?? '☐'} ${entry.content}`).join('\n')
       if (listed === plan) continue
       plan = listed
       kind = undefined
+      spoke = false
       plans += 1
       const id = `plan-${plans}`
       yield { kind: 'call-start', id, input: { kind: 'plan', title: 'Plan' }, usage: null }
       yield { kind: 'call-end', id, output: listed, failed: false }
     } else if (item.k === 'call') {
       kind = undefined
+      spoke = false
       yield {
         kind: 'call-start',
         id: item.id,
@@ -254,10 +246,14 @@ export async function* childRun(
       }
     } else if (item.k === 'called') yield { kind: 'call-end', id: item.id, output: item.output, failed: item.failed }
   }
-  const said = report.trim() || (failure ? `The ${name} subagent failed: ${failure}` : `The ${name} subagent ended without a message.`)
-  const signed = `${said}\n\n— answered by ${name} subagent${channel?.model ? `, ${channel.model}` : ''}`
+  // A failed child keeps what it said, then the failure in place of the signature: a signature says it answered.
+  const tail = failure
+    ? `The ${name} subagent failed: ${failure}`
+    : `— answered by ${name} subagent${channel?.model ? `, ${channel.model}` : ''}`
+  const said = report.trim() || (failure ? '' : `The ${name} subagent ended without a message.`)
+  const signed = [said, tail].filter(Boolean).join('\n\n')
   if (nested) nested.report = signed
-  yield push('text', `\n\n— answered by ${name} subagent${channel?.model ? `, ${channel.model}` : ''}`)
+  yield push('text', `${report.trim() && spoke ? '\n\n' : said ? `${said}\n\n` : ''}${tail}`)
   if (handback) return yield* deliver(name, e, { prompt: '', report: signed, delivered: false }, index + 1, signed, null)
   return yield* respond(e, [{ kind: 'stop', stopReason: 'end_turn', usage: null }], signed)
 }
