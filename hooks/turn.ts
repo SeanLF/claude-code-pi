@@ -48,6 +48,7 @@ export async function adapterOf(w: World, $: Parameters<StepHook>[0], agentId: s
   const remembered = kept ? w.adapters.get(kept.harness) : undefined
   if (remembered) {
     w.agents.set(agentId, remembered)
+    if (kept?.nested) w.lost.add(agentId)
     return remembered
   }
   const agent = (await $.agent.list()).find((a) => a.id === agentId)
@@ -196,7 +197,7 @@ async function* nestedStep(
   signal: AbortSignal,
 ): AsyncGenerator<TurnStepChunk, TurnStepResult> {
   const job = w.jobs.get(agentId)
-  if (job !== undefined) return await kept($, agentId, nested, yield* pump(w, job, e, signal, joining($, agentId, job.turnId)))
+  if (job !== undefined) return await kept(w, $, agentId, nested, yield* pump(w, job, e, signal, joining($, agentId, job.turnId)))
   // After its handback, or a later message: the answer again, as text.
   if (nested.report !== undefined) return yield* respond(e, textChunks(nested.report), nested.report)
   const abort = new AbortController()
@@ -210,18 +211,27 @@ async function* nestedStep(
     count: 0,
   }
   w.jobs.set(agentId, started)
-  return await kept($, agentId, nested, yield* pump(w, started, e, signal, joining($, agentId, e.turnId)))
+  return await kept(w, $, agentId, nested, yield* pump(w, started, e, signal, joining($, agentId, e.turnId)))
 }
 
 // A nested agent's answer, saved once it has one: a new process has no parent run to read it from (lost).
+// childRun has handed it back by then, so a new process must not hand it back again.
 async function kept(
+  w: World,
   $: Parameters<StepHook>[0],
   agentId: string,
   nested: { report?: string },
   result: TurnStepResult,
 ): Promise<TurnStepResult> {
-  if (nested.report !== undefined) await $.state.set({ plugin: 'via', key: 'reports', id: agentId }, nested.report).catch(() => undefined)
+  if (nested.report === undefined) return result
+  await saveNested(w, $, agentId, nested.report)
   return result
+}
+
+export async function saveNested(w: World, $: Parameters<StepHook>[0], agentId: string, report: string): Promise<void> {
+  await $.state.set({ plugin: 'via', key: 'reports', id: agentId }, report).catch(() => undefined)
+  if (await handbackOf(w, $, agentId).catch(() => false))
+    await $.state.set({ plugin: 'via', key: 'handedBack', id: agentId }, true).catch(() => undefined)
 }
 
 // A step's wait for its run's next chunk: the engine's bounded wait, see waitStep.
@@ -241,7 +251,7 @@ export async function* turnStep(w: World, $: Parameters<StepHook>[0], e: Paramet
   if (nested !== undefined) return yield* nestedStep(w, $, e, agentId, adapter, nested, next.signal)
   // A nested agent the old process spawned: its parent's run is gone, so its saved answer or the cut-off,
   // never a new run of the harness on the nested agent's prompt.
-  if (!w.seeds.has(agentId) && (await roster($))[agentId]?.nested) return yield* lost(w, $, e, agentId, adapter)
+  if (w.lost.has(agentId)) return yield* lost(w, $, e, agentId, adapter)
   if (w.turns.get(e.turnId)?.wake) {
     const saved = (await $.state.get({ plugin: 'via', key: 'reports', id: agentId })).value ?? ''
     return yield* respond(e, textChunks(saved), saved)

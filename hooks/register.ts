@@ -9,7 +9,7 @@ import { cachedModels, refreshModels } from './models'
 import { descriptionOf, isModel, promptOf } from './prompt'
 import { notActivePrompt } from './run'
 import { sendMessage, steer, typed } from './steer'
-import { adapterOf, remember, turnStep } from './turn'
+import { adapterOf, remember, saveNested, turnStep } from './turn'
 import type { World } from './world'
 
 // Only harnesses installed at session start get an agent type: each description rides on every request.
@@ -116,6 +116,7 @@ export const register: Register = (on, options) => {
     modes: new Map(),
     agents: new Map(),
     others: new Set(),
+    lost: new Set(),
     inboxes: new Map(),
     descriptions: new Map(),
     activity: new Map(),
@@ -321,7 +322,11 @@ export const register: Register = (on, options) => {
     endJob(world, agentId)
     const nested = world.nested.get(agentId)
     const report = `The ${adapter.name}${nested ? ' subagent' : ''} failed: via could not render its next step.`
-    if (nested) nested.report = report
+    if (nested) {
+      nested.report = report
+      // Saved, or a new process says the run was cut off, not that it failed.
+      await saveNested(world, $, agentId, report)
+    }
     return yield* respond(e, textChunks(report), report)
   })
 }
