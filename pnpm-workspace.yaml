@@ -5,6 +5,14 @@ allowBuilds:
 # Dropped: pi's runtime dependencies its types never reach (179 MB -> 74 MB).
 # A type that moves into one of these turns into `any`; hooks/adapters/pi.ts
 # fails the type check when that happens.
+minimumReleaseAgeExclude:
+  - '@agentclientprotocol/sdk@2.6.0'
+  - '@earendil-works/pi-agent-core@1.5.2'
+  - '@earendil-works/pi-ai@1.5.2'
+  - '@earendil-works/pi-coding-agent@1.5.2'
+  - '@earendil-works/pi-schema@1.5.2'
+  - '@earendil-works/pi-tui@1.5.2'
+  - '@openai/codex-sdk@0.167.1'
 overrides:
   '@anthropic-ai/sdk': '-'
   '@aws-sdk/client-bedrock-runtime': '-'
