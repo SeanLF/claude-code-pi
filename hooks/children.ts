@@ -1,4 +1,4 @@
-import type { TurnStepChunk, TurnStepResult } from 'claude-code'
+import type { EngineInterface, TurnStepChunk, TurnStepResult } from 'claude-code'
 import type { Norm } from './acp/norm'
 import { CHILD_CALL, type Mark } from './acp/steps'
 import { deliver, respond } from './handback'
@@ -127,6 +127,30 @@ export function closeChildren(w: Children, agentId: string, failure?: string): v
 
 // A nested agent's run: its child's rows and messages, then its last message as the answer, signed with
 // the model the child's session reported.
+// The engine's bounded wait for a nested agent's channel to get its next event (see waitChild). Resolves when
+// an event arrives, after the bound, or at once when the channel already has one. A noun, so the wait is not
+// charged to the hook's own budget.
+export async function waitChild(
+  w: Children,
+  key: string,
+  after: (wake: () => void) => ReturnType<EngineInterface['clock']['after']>,
+): Promise<void> {
+  const channel = w.channels.get(key)
+  // Gone: throw, so the caller ends its answer. Returning would make the caller wait again at once, forever.
+  if (!channel) throw new Error('its event channel is no longer available')
+  if (channel.queue.length > 0) return
+  let timer: ReturnType<EngineInterface['clock']['after']> | undefined
+  try {
+    await new Promise<void>((resolve) => {
+      channel.wake = resolve
+      timer = after(resolve)
+    })
+  } finally {
+    channel.wake = undefined
+    timer?.cancel()
+  }
+}
+
 export async function* childRun(
   w: Children,
   agentId: string,
@@ -134,6 +158,7 @@ export async function* childRun(
   e: { turnId: string; index: number },
   signal: AbortSignal,
   handback: boolean,
+  wait: (key: string) => Promise<void>,
 ): AsyncGenerator<TurnStepChunk | Mark, TurnStepResult> {
   const nested = w.nested.get(agentId)
   const channel = nested === undefined ? undefined : w.channels.get(nested.key)
@@ -141,6 +166,9 @@ export async function* childRun(
   let kind: 'text' | undefined
   let report = ''
   let failure: string | undefined
+  // Text since the last call or spawn, each of which ends a step: an answer said before them is said
+  // again at the end, or the last step holds only the signature (Claude Code's answer is its text).
+  let spoke = false
   const text = (t: string): TurnStepChunk => {
     if (kind !== 'text') {
       kind = 'text'
@@ -152,16 +180,22 @@ export async function* childRun(
     const item = channel?.queue.shift() ?? (channel === undefined ? ({ k: 'end' } as const) : undefined)
     if (item === undefined) {
       if (signal.aborted) break
-      await new Promise<void>((resolve) => {
-        const go = () => resolve()
-        ;(channel as Channel).wake = go
-        signal.addEventListener('abort', go, { once: true })
-      })
-      ;(channel as Channel).wake = undefined
+      // Bounded: each wait returns within the engine's reply deadline. A failed wait ends this child's answer
+      // with a failure, not an error: an error would fall through to the model without the hooks.
+      const wake = () => channel?.wake?.()
+      signal.addEventListener('abort', wake, { once: true })
+      try {
+        await wait((channel as Channel).key)
+      } catch {
+        failure = 'could not wait for its next event'
+        break
+      } finally {
+        signal.removeEventListener('abort', wake)
+      }
       continue
     }
     if (item.k === 'end') {
-      failure = item.failure
+      failure = item.failure ?? failure
       // Kept while the run goes on, so its late patches are known as this child's, not a new one.
       if (channel) channel.read = true
       if (channel?.closed) for (const [key, held] of w.channels) if (held === channel) w.channels.delete(key)
@@ -170,6 +204,7 @@ export async function* childRun(
     if (item.k === 'spawn') {
       const grand = w.channels.get(item.child)
       kind = undefined
+      spoke = false
       if (grand)
         yield {
           kind: 'spawn',
@@ -181,9 +216,11 @@ export async function* childRun(
     } else if (item.k === 'message') report = ''
     else if (item.k === 'text') {
       report += item.t
+      spoke = true
       yield text(item.t)
     } else if (item.k === 'call') {
       kind = undefined
+      spoke = false
       yield {
         kind: 'call-start',
         id: item.id,
@@ -192,10 +229,14 @@ export async function* childRun(
       }
     } else if (item.k === 'called') yield { kind: 'call-end', id: item.id, output: item.output, failed: item.failed }
   }
-  const said = report.trim() || (failure ? `The ${name} subagent failed: ${failure}` : `The ${name} subagent ended without a message.`)
-  const signed = `${said}\n\n— answered by ${name} subagent${channel?.model ? `, ${channel.model}` : ''}`
+  // A failed child keeps what it said, then the failure in place of the signature: a signature says it answered.
+  const tail = failure
+    ? `The ${name} subagent failed: ${failure}`
+    : `— answered by ${name} subagent${channel?.model ? `, ${channel.model}` : ''}`
+  const said = report.trim() || (failure ? '' : `The ${name} subagent ended without a message.`)
+  const signed = [said, tail].filter(Boolean).join('\n\n')
   if (nested) nested.report = signed
-  yield text(`\n\n— answered by ${name} subagent${channel?.model ? `, ${channel.model}` : ''}`)
+  yield text(`${report.trim() && spoke ? '\n\n' : said ? `${said}\n\n` : ''}${tail}`)
   if (handback) return yield* deliver(name, e, { prompt: '', report: signed, delivered: false }, index + 1, signed, null)
   return yield* respond(e, [{ kind: 'stop', stopReason: 'end_turn', usage: null }], signed)
 }

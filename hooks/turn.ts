@@ -16,7 +16,8 @@ type StepHook = StreamHook<'turn.step'>
 // background continues in a new process, with none of the spawn's state. The newest ROSTER_KEPT.
 const ROSTER = 'agents'
 const ROSTER_KEPT = 200
-type Kept = { harness: string; handback: boolean }
+// nested: a harness's own subagent, which only its parent's run can answer; a new process has no such run.
+type Kept = { harness: string; handback: boolean; nested?: true }
 async function roster($: Pick<EngineInterface, 'store'>): Promise<Record<string, Kept>> {
   const stored = await $.store.get(ROSTER).catch(() => undefined)
   if (typeof stored !== 'object' || stored === null) return {}
@@ -47,6 +48,7 @@ export async function adapterOf(w: World, $: Parameters<StepHook>[0], agentId: s
   const remembered = kept ? w.adapters.get(kept.harness) : undefined
   if (remembered) {
     w.agents.set(agentId, remembered)
+    if (kept?.nested) w.lost.add(agentId)
     return remembered
   }
   const agent = (await $.agent.list()).find((a) => a.id === agentId)
@@ -195,21 +197,46 @@ async function* nestedStep(
   signal: AbortSignal,
 ): AsyncGenerator<TurnStepChunk, TurnStepResult> {
   const job = w.jobs.get(agentId)
-  if (job !== undefined) return yield* pump(w, job, e, signal)
+  if (job !== undefined) return await kept(w, $, agentId, nested, yield* pump(w, job, e, signal, joining($, agentId, job.turnId)))
   // After its handback, or a later message: the answer again, as text.
   if (nested.report !== undefined) return yield* respond(e, textChunks(nested.report), nested.report)
   const abort = new AbortController()
   const handback = await handbackOf(w, $, agentId)
   const started: Job = {
     turnId: e.turnId,
-    gen: childRun(w, agentId, adapter.name, e, abort.signal, handback),
+    gen: childRun(w, agentId, adapter.name, e, abort.signal, handback, (key) => $.viaChildren.wait({ key })),
     held: [],
     outputs: new Map(),
     abort,
     count: 0,
   }
   w.jobs.set(agentId, started)
-  return yield* pump(w, started, e, signal)
+  return await kept(w, $, agentId, nested, yield* pump(w, started, e, signal, joining($, agentId, e.turnId)))
+}
+
+// A nested agent's answer, saved once it has one: a new process has no parent run to read it from (lost).
+// childRun has handed it back by then, so a new process must not hand it back again.
+async function kept(
+  w: World,
+  $: Parameters<StepHook>[0],
+  agentId: string,
+  nested: { report?: string },
+  result: TurnStepResult,
+): Promise<TurnStepResult> {
+  if (nested.report === undefined) return result
+  await saveNested(w, $, agentId, nested.report)
+  return result
+}
+
+export async function saveNested(w: World, $: Parameters<StepHook>[0], agentId: string, report: string): Promise<void> {
+  await $.state.set({ plugin: 'via', key: 'reports', id: agentId }, report).catch(() => undefined)
+  if (await handbackOf(w, $, agentId).catch(() => false))
+    await $.state.set({ plugin: 'via', key: 'handedBack', id: agentId }, true).catch(() => undefined)
+}
+
+// A step's wait for its run's next chunk: the engine's bounded wait, see waitStep.
+function joining($: Parameters<StepHook>[0], agentId: string, turnId: string): () => Promise<void> {
+  return () => $.viaSteps.wait({ agentId, turnId })
 }
 
 // A run outlives the step that started it: each harness tool call ends a step with a call to via's
@@ -222,20 +249,23 @@ export async function* turnStep(w: World, $: Parameters<StepHook>[0], e: Paramet
   if (adapter === undefined) return yield* next(e)
   const nested = w.nested.get(agentId)
   if (nested !== undefined) return yield* nestedStep(w, $, e, agentId, adapter, nested, next.signal)
+  // A nested agent the old process spawned: its parent's run is gone, so its saved answer or the cut-off,
+  // never a new run of the harness on the nested agent's prompt.
+  if (w.lost.has(agentId)) return yield* lost(w, $, e, agentId, adapter)
   if (w.turns.get(e.turnId)?.wake) {
     const saved = (await $.state.get({ plugin: 'via', key: 'reports', id: agentId })).value ?? ''
     return yield* respond(e, textChunks(saved), saved)
   }
   const job = w.jobs.get(agentId)
   if (job !== undefined) {
-    if (job.turnId === e.turnId) return yield* pump(w, job, e, next.signal)
+    if (job.turnId === e.turnId) return yield* pump(w, job, e, next.signal, joining($, agentId, e.turnId))
     endJob(w, agentId)
   }
   const started = yield* begin(w, adapter, $, e, agentId)
   if (started === undefined) return yield* respond(e, [{ kind: 'stop', stopReason: 'end_turn', usage: null }], '')
   if ('answer' in started) return started
   w.jobs.set(agentId, started)
-  return yield* pump(w, started, e, next.signal)
+  return yield* pump(w, started, e, next.signal, joining($, agentId, e.turnId))
 }
 
 // Everything before the run: refusals answer at once; otherwise the run as a job.
@@ -247,30 +277,7 @@ async function* begin(
   agentId: string,
 ): AsyncGenerator<TurnStepChunk, TurnStepResult | Job | undefined> {
   const turn = w.turns.get(e.turnId)
-  if (turn === undefined) {
-    // A compaction can take a step with no turn.start: keep the agent's real answer, not the stub.
-    // Claude Code takes the last text as the result even after a handback, so a delivered report is
-    // repeated as text, and only an undelivered one is handed back.
-    const saved = (await $.state.get({ plugin: 'via', key: 'reports', id: agentId })).value
-    if (saved) {
-      const handed = (await $.state.get({ plugin: 'via', key: 'handedBack', id: agentId })).value === true
-      if (!handed && (await handbackOf(w, $, agentId))) {
-        await $.state.set({ plugin: 'via', key: 'handedBack', id: agentId }, true)
-        return yield* deliver(adapter.name, e, { prompt: '', report: saved, delivered: false }, 0, saved, null)
-      }
-      return yield* respond(e, textChunks(saved), saved)
-    }
-    // This hook runs, so via is loaded: the turn was lost, in a session sent to the background (its new
-    // process resumes the agent without a turn.start) or a reload mid-run, not never run.
-    // Handed back once: the step after the handback has no turn either, and must not hand back again.
-    const said = cutOff(adapter.name)
-    const handed = (await $.state.get({ plugin: 'via', key: 'handedBack', id: agentId })).value === true
-    if (!handed && (await handbackOf(w, $, agentId))) {
-      await $.state.set({ plugin: 'via', key: 'handedBack', id: agentId }, true)
-      return yield* deliver(adapter.name, e, { prompt: '', report: said, delivered: false }, 0, said, null)
-    }
-    return yield* respond(e, textChunks(said), said)
-  }
+  if (turn === undefined) return yield* lost(w, $, e, agentId, adapter)
   if (turn.delivered) return yield* respond(e, textChunks(turn.report ?? ''), turn.report ?? '')
   if (turn.report !== undefined) {
     await $.state.set({ plugin: 'via', key: 'handedBack', id: agentId }, true)
@@ -363,6 +370,38 @@ async function* begin(
     }),
   }
   return job
+}
+
+// A step with no turn: the agent's saved answer, or that its run was cut off.
+async function* lost(
+  w: World,
+  $: Parameters<StepHook>[0],
+  e: Parameters<StepHook>[1],
+  agentId: string,
+  adapter: Adapter,
+): AsyncGenerator<TurnStepChunk, TurnStepResult> {
+  // A compaction can take a step with no turn.start: keep the agent's real answer, not the stub.
+  // Claude Code takes the last text as the result even after a handback, so a delivered report is
+  // repeated as text, and only an undelivered one is handed back.
+  const saved = (await $.state.get({ plugin: 'via', key: 'reports', id: agentId })).value
+  if (saved) {
+    const handed = (await $.state.get({ plugin: 'via', key: 'handedBack', id: agentId })).value === true
+    if (!handed && (await handbackOf(w, $, agentId))) {
+      await $.state.set({ plugin: 'via', key: 'handedBack', id: agentId }, true)
+      return yield* deliver(adapter.name, e, { prompt: '', report: saved, delivered: false }, 0, saved, null)
+    }
+    return yield* respond(e, textChunks(saved), saved)
+  }
+  // This hook runs, so via is loaded: the turn was lost, in a session sent to the background (its new
+  // process resumes the agent without a turn.start) or a reload mid-run, not never run.
+  // Handed back once: the step after the handback has no turn either, and must not hand back again.
+  const said = cutOff(adapter.name)
+  const handed = (await $.state.get({ plugin: 'via', key: 'handedBack', id: agentId })).value === true
+  if (!handed && (await handbackOf(w, $, agentId))) {
+    await $.state.set({ plugin: 'via', key: 'handedBack', id: agentId }, true)
+    return yield* deliver(adapter.name, e, { prompt: '', report: said, delivered: false }, 0, said, null)
+  }
+  return yield* respond(e, textChunks(said), said)
 }
 
 // What one run needs, settled before it starts.
