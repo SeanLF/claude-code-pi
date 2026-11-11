@@ -52,6 +52,8 @@ Ask in plain language: "Have codex review src/api". Optional lines at the top of
 
 A message to a running Codex, OpenCode or pi agent reaches it at its next step; `interrupt:` first stops the current step. agy only takes follow-ups. A completed answer ends with the model the harness reports; one only taken from your `model:` line says `(requested)`, and a harness that won't say gets `model not reported`.
 
+Codex's nested agents show their full delegated prompt and parent-to-child follow-ups as user messages.
+
 ## Permissions
 
 - **Read-only:** Codex runs in its read-only sandbox with MCP servers and plugins off; OpenCode and pi get reading tools only.

@@ -9,4 +9,5 @@
 - `hooks/writer.ts` writes a run's steps, for `via` agents and their nested ones.
 - Harness tool calls reach Claude Code as calls to the MCP tool `step`, which runs nothing: `via` answers each with what the harness reported, and refuses a `step` call it didn't make.
 - Nested agents need the harness to report subagents over ACP ([subagents RFD](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/rfds/subagents.mdx)); `codex-acp` does.
+- Codex child input parsing lives in `hooks/adapters/codex-children.ts`; the shared ACP parser stays harness-neutral. Late acknowledgements preserve an answer already streaming and do not reopen a finished child.
 - `pnpm test:relay` tests the relay against a fake agent; `relay/checks/` holds the live checks for each ACP agent.
