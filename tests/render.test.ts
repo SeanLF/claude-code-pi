@@ -1,4 +1,4 @@
-import type { RenderInput, RenderPropsOf } from 'claude-code'
+import type { RenderElement, RenderInput, RenderPropsOf } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 
 const TOOL = 'mcp__plugin_via_step__step'
@@ -12,12 +12,57 @@ const call = (index: number): RenderPropsOf['ToolGroup']['calls'][number] & { to
   isInterrupted: false,
 })
 
+const textOf = (node: unknown): string =>
+  typeof node === 'string'
+    ? node
+    : typeof node === 'object' && node !== null && 'children' in node
+      ? ((node as { children?: unknown[] }).children ?? []).map(textOf).join('')
+      : ''
+
 const texts = (node: unknown): string[] =>
   typeof node === 'string'
     ? [node]
     : typeof node === 'object' && node !== null
       ? ((node as { children?: unknown[] }).children ?? []).flatMap(texts)
       : []
+
+test('nested command titles stay on the summary and ctrl+o preserves their exact output', async ($, on) => {
+  const title = "sed -n '120,180p' src/example/long_module_name_for_wrapping.py; sed…"
+  const output = 'first check PASS, selected count 7\nsecond check PASS\nthird check PASS'
+  const calls = Array.from({ length: 10 }, (_, index) => call(index + 1))
+  calls[8] = { ...calls[8], input: { kind: 'read', title: 'Read source' } }
+  calls[9] = { ...calls[9], input: { kind: 'execute', title }, output }
+  const seen: RenderInput[] = []
+  on('ui.render', (_, e) => {
+    seen.push(e)
+    return { type: 'Text', children: ['native rows'] }
+  })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const drawn = (await $.ui.render({
+      surface,
+      component: 'ToolGroup',
+      requestId: 'nested-group',
+      props: { calls, isActive: true, isExpanded: false, isCallsOnly: true },
+    })) as RenderElement
+    expect(seen).toHaveLength(0)
+    expect(textOf(drawn)).toBe(`Running 9 commands, reading 1 file… · ${title}`)
+    expect(drawn.children).toHaveLength(1)
+    const row = (await $.ui.render({
+      surface,
+      component: 'ToolUse',
+      requestId: 'nested-expanded',
+      props: { ...calls[9], isExpanded: true },
+    })) as RenderElement
+    expect(row.type).toBe('Box')
+    expect(row.props?.flexDirection).toBe('column')
+    expect(row.children?.map(textOf)).toEqual([
+      `Ran ${title}`,
+      '  ⎿  first check PASS, selected count 7',
+      '     second check PASS',
+      '     third check PASS',
+    ])
+  }
+})
 
 test('step groups stay collapsed from their first command through completion and history', async ($, on) => {
   const seen: RenderInput[] = []

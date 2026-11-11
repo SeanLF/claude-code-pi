@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 
-// ../upstream/node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/index.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/index.js
 var AGENT_METHODS = {
   initialize: "initialize",
   authenticate: "authenticate",
@@ -57,7 +57,7 @@ var PROTOCOL_METHODS = {
 };
 var PROTOCOL_VERSION = 1;
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/util.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
   BIGINT_FORMAT_RANGES: () => BIGINT_FORMAT_RANGES,
@@ -913,7 +913,7 @@ function constantCatch(value) {
   return fn;
 }
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/core.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/core.js
 var _a;
 var NEVER = /* @__PURE__ */ Object.freeze({
   status: "aborted"
@@ -1034,7 +1034,7 @@ function config(newConfig) {
   return globalConfig;
 }
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/errors.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/errors.js
 function _getMessage() {
   const internals = this._zod;
   internals.message ?? (internals.message = JSON.stringify(internals.def, jsonStringifyReplacer, 2));
@@ -1149,7 +1149,7 @@ function formatError(error2, mapper = (issue2) => issue2.message) {
   return fieldErrors;
 }
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/parse.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/parse.js
 function finalizeParams(callee, params) {
   return { callee: params?.callee ?? callee, Err: params?.Err };
 }
@@ -1297,7 +1297,7 @@ var _safeDecodeAsync = (_Err) => async (schema, value, _ctx) => {
   return _safeParseAsync(_Err)(schema, value, _ctx);
 };
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/regexes.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/regexes.js
 var cuid = /^[cC][0-9a-z]{6,}$/;
 var cuid2 = /^[0-9a-z]+$/;
 var ulid = /^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$/;
@@ -1356,7 +1356,7 @@ var _null = /^null$/i;
 var lowercase = /^[^A-Z]*$/;
 var uppercase = /^[^a-z]*$/;
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/checks.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/checks.js
 var $ZodCheck = /* @__PURE__ */ $constructor("$ZodCheck", (inst, def) => {
   var _a3;
   inst._zod ?? (inst._zod = {});
@@ -1676,7 +1676,7 @@ var $ZodCheckOverwrite = /* @__PURE__ */ $constructor("$ZodCheckOverwrite", (ins
   };
 });
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/doc.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/doc.js
 var Doc = class {
   constructor(args2 = [], closed = {}) {
     this.content = [];
@@ -1717,14 +1717,14 @@ ${content.join("\n")}
   }
 };
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/versions.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/versions.js
 var version = {
   major: 4,
   minor: 6,
   patch: 7
 };
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/schemas.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/schemas.js
 var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
   var _a3;
   inst ?? (inst = {});
@@ -3308,7 +3308,7 @@ function handleRefineResult(result2, payload, input, inst) {
   }
 }
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/memoizer.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/memoizer.js
 var $ZodCyclicError = class extends Error {
   constructor() {
     super(`Cannot parse a reference cycle that closes through a transform`);
@@ -3582,7 +3582,7 @@ function isBackEdge(ctx, value) {
   return backEdges !== void 0 && isRef(value) && backEdges.has(value);
 }
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/locales/en.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/locales/en.js
 var error = () => {
   const Sizable = {
     string: { unit: "characters", verb: "to have" },
@@ -3707,7 +3707,7 @@ function en_default() {
   };
 }
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/registries.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/registries.js
 var _a2;
 var $ZodRegistry = class {
   constructor() {
@@ -3755,7 +3755,7 @@ function registry() {
 (_a2 = globalThis).__zod_globalRegistry ?? (_a2.__zod_globalRegistry = registry());
 var globalRegistry = globalThis.__zod_globalRegistry;
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/api.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/api.js
 function snapshotChecks(def) {
   if (def.checks)
     def.checks = [...def.checks];
@@ -4270,7 +4270,7 @@ function _check(fn, params) {
   return ch;
 }
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/to-json-schema.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/to-json-schema.js
 function assignProps(target, ...sources) {
   for (const source of sources) {
     for (const key of Reflect.ownKeys(source)) {
@@ -4800,7 +4800,7 @@ var createStandardJSONSchemaMethod = (schema, io, processors = {}) => (params) =
   return finalize(ctx, schema);
 };
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/json-schema-processors.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/json-schema-processors.js
 var narrowMin = (agg, key, value) => {
   if (agg[key] === void 0 || value > agg[key])
     agg[key] = value;
@@ -5338,7 +5338,7 @@ var optionalProcessor = (schema, ctx, _json, params) => {
   seen.ref = def.innerType;
 };
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/classic/errors.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/classic/errors.js
 var _installedErrorProtos = /* @__PURE__ */ new WeakSet([Object.prototype, Error.prototype]);
 function _lazyMethod(proto, key, make) {
   Object.defineProperty(proto, key, {
@@ -5383,7 +5383,7 @@ var ZodRealError = /* @__PURE__ */ $constructor("ZodError", initializer2, void 0
   Parent: Error
 });
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/classic/parse.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/classic/parse.js
 var parse = /* @__PURE__ */ _parse(ZodRealError);
 var parseAsync = /* @__PURE__ */ _parseAsync(ZodRealError);
 var safeParse = /* @__PURE__ */ _safeParse(ZodRealError);
@@ -5397,7 +5397,7 @@ var safeDecode = /* @__PURE__ */ _safeDecode(ZodRealError);
 var safeEncodeAsync = /* @__PURE__ */ _safeEncodeAsync(ZodRealError);
 var safeDecodeAsync = /* @__PURE__ */ _safeDecodeAsync(ZodRealError);
 
-// ../upstream/node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/classic/schemas.js
+// node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/classic/schemas.js
 function _ensureDefaultLocale() {
   if (!globalConfig.localeError)
     config(en_default());
@@ -6329,7 +6329,7 @@ function preprocess(fn, schema) {
   });
 }
 
-// ../upstream/node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/schema-deserialize.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/schema-deserialize.js
 var skippedItem = /* @__PURE__ */ Symbol("skippedItem");
 function defaultOnError(schema, fallback) {
   return schema.catch(fallback);
@@ -6415,7 +6415,7 @@ function wideInt() {
   });
 }
 
-// ../upstream/node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/zod.gen.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/zod.gen.js
 var zRequestId = union([wideInt(), string2()]).nullable();
 var zSessionId = string2();
 var zWriteTextFileRequest = object({
@@ -8012,7 +8012,7 @@ var zProxyNotification = object({
   params: zProxySuccessorNotification.nullish()
 });
 
-// ../upstream/node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/jsonrpc.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/jsonrpc.js
 var CANCEL_REQUEST_METHOD = "$/cancel_request";
 function treatSessionNotFoundAsSuccess(method, response, success) {
   if (method !== "session/close" && method !== "session/delete") {
@@ -8880,7 +8880,7 @@ function protocolErrorResponse(error2) {
   };
 }
 
-// ../upstream/node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream-limits.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream-limits.js
 var DEFAULT_MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
 var MessageTooLargeError = class extends Error {
   maxMessageBytes;
@@ -8939,7 +8939,7 @@ var MessageBuffer = class {
   }
 };
 
-// ../upstream/node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/line-buffer.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/line-buffer.js
 var newline = 10;
 var carriageReturn = 13;
 var LineBuffer = class {
@@ -9026,7 +9026,7 @@ function stripCarriageReturn(line) {
   return line[line.byteLength - 1] === carriageReturn ? line.subarray(0, -1) : line;
 }
 
-// ../upstream/node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/stream.js
 function ndJsonStream(output, input, options = {}) {
   const maxMessageBytes = resolveMaxMessageBytes(options.maxMessageBytes);
   const textEncoder = new TextEncoder();
@@ -9132,7 +9132,7 @@ function ndJsonStream(output, input, options = {}) {
   return { readable, writable };
 }
 
-// ../upstream/node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/guards.gen.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/unstable/schema/guards.gen.js
 var zGuardCreateElicitationRequestForm = zElicitationFormMode.and(object({ mode: literal("form") })).and(object({ message: string2() }));
 var zGuardCreateElicitationRequestUrl = zElicitationUrlMode.and(object({ mode: literal("url") })).and(object({ message: string2() }));
 var zGuardCreateElicitationRequestCustom = union([zElicitationSessionScope, zElicitationRequestScope]).and(object({ message: string2() }));
@@ -9171,7 +9171,7 @@ var zGuardCreateElicitationResponseCancel = object({
   action: literal("cancel")
 });
 
-// ../upstream/node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/app-handlers.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/app-handlers.js
 function parseParams(parser, params) {
   if (!parser) {
     return params;
@@ -9221,10 +9221,10 @@ function registerAppNotification(builder, spec, context, handler) {
   }
 }
 
-// ../upstream/node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/connection-access.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/core/connection-access.js
 var connectionContextOf = /* @__PURE__ */ Symbol("connectionContextOf");
 
-// ../upstream/node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/acp.js
+// node_modules/.pnpm/@agentclientprotocol+sdk@2.6.0_zod@4.6.7/node_modules/@agentclientprotocol/sdk/dist/v1/acp.js
 function ndJsonStream2(output, input, options) {
   return ndJsonStream(output, input, options);
 }
