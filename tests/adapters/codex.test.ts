@@ -1,7 +1,7 @@
 import { expect, mock, type TestBody, test } from 'claude-code/testing'
 
 import { codexMode } from '../../hooks/adapters/codex'
-import { ROOT, runTurn, STEP } from '../helpers'
+import { agentStore, ROOT, runTurn, STEP } from '../helpers'
 
 type TestOn = Parameters<TestBody>[1]
 type Spawn = { argv: string[]; input: string | undefined; env?: Record<string, string> }
@@ -92,6 +92,8 @@ function arrange(
     codexAt?: string[]
     projectCodex?: boolean
     homeCodex?: boolean
+    nodes?: string[][] // every node command via ran
+    acp?: string[] // the folders ~/.claude/via/acp holds
   } = {},
 ) {
   const clock = mock.clock(on)
@@ -100,7 +102,7 @@ function arrange(
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e, next) => next(e))
   on('session.messages', () => ({ value: [] }))
-  on('state.get', (_, e, next) => (e.key === 'modes' && o.mode ? { value: { value: o.mode, version: 1 } } : next(e)))
+  const records = agentStore(on, { a1: { harness: 'codex', mode: o.mode ?? 'default' } })
   let answered!: () => void
   const answer = new Promise<void>((resolve) => {
     answered = resolve
@@ -114,7 +116,10 @@ function arrange(
     const ran = (stdout: string, exitCode = 0) => ({
       value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
     })
-    if (e.argv[0] === 'node') return ran(o.node ?? '26.12.1\n')
+    if (e.argv[0] === 'node') {
+      o.nodes?.push([...e.argv])
+      return ran(o.node ?? '26.12.1\n')
+    }
     if (e.argv[0] === 'npm') {
       o.installs?.push({ argv: [...e.argv], cwd: e.init?.cwd })
       return ran('', o.npm ?? 0)
@@ -136,7 +141,12 @@ function arrange(
     if (e.path.endsWith('/.codex')) return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false, realPath: e.path } }
     return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false, realPath: e.path } }
   })
-  on('fs.list', () => ({ value: [{ name: 'config.toml', kind: 'file', size: 1, mtimeMs: 0, isLink: false }] }))
+  on('fs.list', (_, e) => ({
+    value:
+      e.path === '/home/u/.claude/via/acp'
+        ? (o.acp ?? []).map((name) => ({ name, kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false }))
+        : [{ name: 'config.toml', kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false }],
+  }))
   on('fs.read', (_, e) => ({ value: `contents of ${e.path}` }))
   on('tool.call', { tool: 'AskUserQuestion' }, (_, e) => {
     if (o.answer === 'reject') throw new Error('dismissed')
@@ -160,7 +170,7 @@ function arrange(
     if (out.stderr) yield { stream: 'stderr' as const, text: out.stderr }
     return { value: { code: out.code ?? 0, signal: null } }
   })
-  return clock
+  return { clock, records }
 }
 
 test('a codex agent runs codex-acp behind the relay, with its prompt on stdin', async ($, on) => {
@@ -209,7 +219,7 @@ test('an interrupt the relay already ran is neither rerun nor named as undeliver
   const interrupted = new Promise<void>((resolve) => {
     sent = resolve
   })
-  const clock = arrange(on, spawns, { stdout: after }, { writes, pause: { first: before, until: interrupted } })
+  const { clock } = arrange(on, spawns, { stdout: after }, { writes, pause: { first: before, until: interrupted } })
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
   const pending = runTurn($)
   await clock.settle()
@@ -265,17 +275,12 @@ test("a plan-mode spawn's first step runs read-only, from the mode the spawn car
 
 test('the session id is saved, and a follow-up resumes it without replaying its history into the answer', async ($, on) => {
   const spawns: Spawn[] = []
-  const saved: unknown[] = []
   // On session/load the agent replays its history before the relay's first prompt.
   const replayed = [{ relay: 'session', sessionId: SID }, chunk('msg_old', 'OLD ANSWER'), ...CAPTURED.slice(1)]
-  arrange(on, spawns, { stdout: lines(replayed) })
-  on('state.set', (_, e, next) => {
-    if (e.key === 'sessions') saved.push(e.value)
-    return next(e)
-  })
+  const { records } = arrange(on, spawns, { stdout: lines(replayed) })
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
   const { chunks, result } = await runTurn($)
-  expect(saved).toEqual([SID])
+  expect(records.record('a1')?.session).toBe(SID)
   expect(result.answer).not.toContain('OLD ANSWER')
   expect(chunks.some((c) => c.kind === 'text' && c.text.includes('OLD ANSWER'))).toBe(false)
   await $.turn.start({ turnId: 't2', agentId: 'a1', text: 'and again' })
@@ -375,20 +380,15 @@ test('a thinking line becomes the reasoning_effort config option; a level codex 
 
 test('a lost session is forgotten, so the next message starts fresh', async ($, on) => {
   const spawns: Spawn[] = []
-  const saved: unknown[] = []
-  arrange(on, spawns, {
+  const { records } = arrange(on, spawns, {
     stdout: lines([{ relay: 'session_lost', message: 'Resource not found' }]),
     stderr: 'acp relay: session lost: Resource not found\n',
     code: 1,
   })
-  on('state.set', (_, e, next) => {
-    if (e.key === 'sessions') saved.push(e.value)
-    return next(e)
-  })
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
   const { result } = await runTurn($)
   expect(result.answer).toContain("could not find this agent's earlier session")
-  expect(saved).toEqual([''])
+  expect(records.record('a1')?.session).toBe('')
 })
 
 test('a model the agent refuses is a failure in plain words, unsigned', async ($, on) => {
@@ -416,7 +416,7 @@ test('a refused model names the closest models codex offers', async ($, on) => {
     ]),
     code: 1,
   })
-  on('store.get', (_, e, next) => (e.key === 'models.codex' ? { value: ['gpt-6.1-sol', 'gpt-6-luna', 'o9-mini'] } : next(e)))
+  on('store.get', { key: 'models.codex' }, () => ({ value: ['gpt-6.1-sol', 'gpt-6-luna', 'o9-mini'] }))
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'model: gpt-6-lunar\ngo' })
   const { result } = await runTurn($)
   expect(result.answer).toContain('refused model gpt-6-lunar')
@@ -431,7 +431,7 @@ test('a failure that names an offered model, such as a rate limit, suggests noth
     ]),
     code: 1,
   })
-  on('store.get', (_, e, next) => (e.key === 'models.codex' ? { value: ['gpt-6.1-sol', 'gpt-6-luna'] } : next(e)))
+  on('store.get', { key: 'models.codex' }, () => ({ value: ['gpt-6.1-sol', 'gpt-6-luna'] }))
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'model: gpt-6-luna\ngo' })
   const { result } = await runTurn($)
   expect(result.answer).toContain('rate limited for gpt-6-luna')
@@ -448,6 +448,26 @@ test('the first codex run installs the pinned codex-acp with npm ci, no scripts 
   expect(writes.map((w) => w.path)).toEqual(expect.arrayContaining([`${INSTALL}/package.json`, `${INSTALL}/package-lock.json`]))
   expect(installs).toEqual([{ argv: ['npm', 'ci', '--ignore-scripts', '--omit=optional', '--no-audit', '--no-fund'], cwd: INSTALL }])
   expect(spawns[0]?.argv.at(-1)).toBe(ENTRY)
+})
+
+test('a fresh install removes the codex-acp versions earlier releases installed, and nothing else', async ($, on) => {
+  const nodes: string[][] = []
+  const acp = ['codex-acp-2.3.1-preview.9', 'codex-acp-2.5.0', INSTALL.split('/').at(-1) as string, 'latest', 'other-acp-1.0.0']
+  const { clock } = arrange(on, [], undefined, { uninstalled: true, nodes, acp })
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  await runTurn($)
+  await clock.settle()
+  const removed = nodes.find((argv) => argv[1] === '-e')
+  expect(removed?.slice(3)).toEqual(['/home/u/.claude/via/acp/codex-acp-2.3.1-preview.9', '/home/u/.claude/via/acp/codex-acp-2.5.0'])
+})
+
+test('an install already in place removes nothing', async ($, on) => {
+  const nodes: string[][] = []
+  const { clock } = arrange(on, [], undefined, { nodes, acp: ['codex-acp-2.5.0', INSTALL.split('/').at(-1) as string] })
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  await runTurn($)
+  await clock.settle()
+  expect(nodes.some((argv) => argv[1] === '-e')).toBe(false)
 })
 
 test('a failed install refuses the run rather than fetch an unpinned codex-acp', async ($, on) => {
