@@ -2,6 +2,7 @@ import type { EngineInterface, TurnStepChunk, TurnStepResult } from 'claude-code
 import type { Norm } from './acp/norm'
 import { CHILD_CALL, type Mark } from './acp/steps'
 import { deliver, respond } from './handback'
+import { answeredBy, StepWriter } from './writer'
 
 // A harness's own subagents (ACP's subagents RFD) as Claude Code agents nested under the via agent: the
 // via agent's step calls the Agent tool, and via drives the nested agent's steps from what the child's
@@ -25,7 +26,7 @@ export type Channel = {
 export type Children = {
   // By `${via agent id}/${child session id}`, the child's current assignment, and by each assignment's key.
   channels: Map<string, Channel>
-  nested: Map<string, { key: string; report?: string }> // by the nested agent's id
+  nested: Map<string, string> // by the nested agent's id: its channel's key
 }
 
 const put = (channel: Channel, item: Queued) => {
@@ -162,24 +163,12 @@ export async function* childRun(
   handback: boolean,
   wait: (key: string) => Promise<void>,
 ): AsyncGenerator<TurnStepChunk | Mark, TurnStepResult> {
-  const nested = w.nested.get(agentId)
-  const channel = nested === undefined ? undefined : w.channels.get(nested.key)
-  let index = -1
-  let kind: 'text' | 'thinking' | undefined
-  let report = ''
+  const key = w.nested.get(agentId)
+  const channel = key === undefined ? undefined : w.channels.get(key)
+  const writer = new StepWriter()
   let plan = ''
   let plans = 0
   let failure: string | undefined
-  // Text since the last call or spawn, each of which ends a step: an answer said before them is said
-  // again at the end, or the last step holds only the signature (Claude Code's answer is its text).
-  let spoke = false
-  const push = (k: 'text' | 'thinking', text: string): TurnStepChunk => {
-    if (kind !== k) {
-      kind = k
-      index += 1
-    }
-    return { kind: k, index, text }
-  }
   for (;;) {
     const item = channel?.queue.shift() ?? (channel === undefined ? ({ k: 'end' } as const) : undefined)
     if (item === undefined) {
@@ -207,8 +196,7 @@ export async function* childRun(
     }
     if (item.k === 'spawn') {
       const grand = w.channels.get(item.child)
-      kind = undefined
-      spoke = false
+      writer.boundary()
       if (grand)
         yield {
           kind: 'spawn',
@@ -218,42 +206,28 @@ export async function* childRun(
           ...(grand.description ? { description: grand.description } : {}),
         }
     } else if (item.k === 'message') {
-      report = ''
-      kind = undefined
-    } else if (item.k === 'text') {
-      report += item.t
-      spoke = true
-      yield push('text', item.t)
-    } else if (item.k === 'thinking') yield push('thinking', item.t)
+      writer.message()
+      writer.boundary()
+    } else if (item.k === 'text') yield writer.text(item.t)
+    else if (item.k === 'thinking') yield writer.thinking(item.t)
     else if (item.k === 'plan') {
       const listed = item.entries.map((entry) => `${PLAN_MARKS[entry.status] ?? '☐'} ${entry.content}`).join('\n')
       if (listed === plan) continue
       plan = listed
-      kind = undefined
-      spoke = false
       plans += 1
       const id = `plan-${plans}`
-      yield { kind: 'call-start', id, input: { kind: 'plan', title: 'Plan' }, usage: null }
+      yield writer.call(id, { kind: 'plan', title: 'Plan' }, null)
       yield { kind: 'call-end', id, output: listed, failed: false }
-    } else if (item.k === 'call') {
-      kind = undefined
-      spoke = false
-      yield {
-        kind: 'call-start',
-        id: item.id,
-        input: { kind: item.kind, title: item.title, ...(item.path ? { path: item.path } : {}) },
-        usage: null,
-      }
-    } else if (item.k === 'called') yield { kind: 'call-end', id: item.id, output: item.output, failed: item.failed }
+    } else if (item.k === 'call')
+      yield writer.call(item.id, { kind: item.kind, title: item.title, ...(item.path ? { path: item.path } : {}) }, null)
+    else if (item.k === 'called') yield { kind: 'call-end', id: item.id, output: item.output, failed: item.failed }
   }
   // A failed child keeps what it said, then the failure in place of the signature: a signature says it answered.
-  const tail = failure
-    ? `The ${name} subagent failed: ${failure}`
-    : `— answered by ${name} subagent${channel?.model ? `, ${channel.model}` : ''}`
-  const said = report.trim() || (failure ? '' : `The ${name} subagent ended without a message.`)
+  const tail = failure ? `The ${name} subagent failed: ${failure}` : answeredBy(`${name} subagent`, channel?.model)
+  const report = writer.report.trim()
+  const said = report || (failure ? '' : `The ${name} subagent ended without a message.`)
   const signed = [said, tail].filter(Boolean).join('\n\n')
-  if (nested) nested.report = signed
-  yield push('text', `${report.trim() && spoke ? '\n\n' : said ? `${said}\n\n` : ''}${tail}`)
-  if (handback) return yield* deliver(name, e, { prompt: '', report: signed, delivered: false }, index + 1, signed, null)
+  yield writer.say(`${report && writer.spoke ? '\n\n' : said ? `${said}\n\n` : ''}${tail}`)
+  if (handback) return yield* deliver(name, e, writer.index + 1, signed, null)
   return yield* respond(e, [{ kind: 'stop', stopReason: 'end_turn', usage: null }], signed)
 }
