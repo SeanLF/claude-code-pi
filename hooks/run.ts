@@ -60,6 +60,9 @@ export async function* run(
   let buffer = ''
   let stderr = ''
   let report = ''
+  // Text since the last call: Claude Code takes the last step's text as the answer, so an answer said
+  // before the run's last call is said again at the end (finish).
+  let spoke = false
   let answeredBy = ''
   const notices: string[] = []
   const parse = adapter.events(session)
@@ -138,6 +141,7 @@ export async function* run(
           break
         case 'text':
           report += event.t
+          spoke = true
           chunks.push(push('text', event.t))
           break
         case 'thinking':
@@ -145,6 +149,7 @@ export async function* run(
           break
         case 'call': {
           kind = undefined
+          spoke = false
           open.add(event.id)
           if (event.kind === 'compact') compacting.add(event.id)
           const input = { kind: event.kind, title: event.title, ...(event.path ? { path: event.path } : {}) }
@@ -315,6 +320,7 @@ export async function* run(
     report,
     answeredBy,
     failure,
+    restate: !spoke,
     steered,
     inbox,
     total: last,
