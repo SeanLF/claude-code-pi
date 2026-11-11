@@ -152,6 +152,8 @@ export async function waitChild(
   }
 }
 
+const PLAN_MARKS: Record<string, string> = { pending: '☐', in_progress: '◐', completed: '☑' }
+
 export async function* childRun(
   w: Children,
   agentId: string,
@@ -164,6 +166,8 @@ export async function* childRun(
   const key = w.nested.get(agentId)
   const channel = key === undefined ? undefined : w.channels.get(key)
   const writer = new StepWriter()
+  let plan = ''
+  let plans = 0
   let failure: string | undefined
   for (;;) {
     const item = channel?.queue.shift() ?? (channel === undefined ? ({ k: 'end' } as const) : undefined)
@@ -201,9 +205,20 @@ export async function* childRun(
           title: grand.title,
           ...(grand.description ? { description: grand.description } : {}),
         }
-    } else if (item.k === 'message') writer.message()
-    else if (item.k === 'text') yield writer.text(item.t)
-    else if (item.k === 'call')
+    } else if (item.k === 'message') {
+      writer.message()
+      writer.boundary()
+    } else if (item.k === 'text') yield writer.text(item.t)
+    else if (item.k === 'thinking') yield writer.thinking(item.t)
+    else if (item.k === 'plan') {
+      const listed = item.entries.map((entry) => `${PLAN_MARKS[entry.status] ?? '☐'} ${entry.content}`).join('\n')
+      if (listed === plan) continue
+      plan = listed
+      plans += 1
+      const id = `plan-${plans}`
+      yield writer.call(id, { kind: 'plan', title: 'Plan' }, null)
+      yield { kind: 'call-end', id, output: listed, failed: false }
+    } else if (item.k === 'call')
       yield writer.call(item.id, { kind: item.kind, title: item.title, ...(item.path ? { path: item.path } : {}) }, null)
     else if (item.k === 'called') yield { kind: 'call-end', id: item.id, output: item.output, failed: item.failed }
   }
