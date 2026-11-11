@@ -69,7 +69,7 @@ export const codex = {
   // codex-acp and its whole dependency tree, locked with integrity hashes in relay/codex-acp.
   relay: {
     install: {
-      dir: 'codex-acp-2.3.1-preview.9',
+      dir: 'codex-acp-2.5.0',
       package: '@agentclientprotocol/codex-acp',
       files: ['relay/codex-acp/package.json', 'relay/codex-acp/package-lock.json'],
       entry: 'node_modules/@agentclientprotocol/codex-acp/dist/index.js',
