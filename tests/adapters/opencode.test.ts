@@ -194,6 +194,7 @@ test('an aborted run saves a session id in an unterminated tail without showing 
     modes: new Map(),
     agents: new Map(),
     others: new Set(),
+    lost: new Set(),
     inboxes: new Map(),
     descriptions: new Map(),
     activity: new Map(),

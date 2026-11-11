@@ -22,6 +22,7 @@ export type World = Steps &
     agents: Map<string, Adapter>
     roster?: Promise<void> // spawns write the stored roster one at a time, or parallel spawns drop each other
     others: Set<string>
+    lost: Set<string> // nested agents another process spawned: their parent run is gone
     inboxes: Map<string, Inbox>
     descriptions: Map<string, string> // the spawn's Agent description, for its panel row
     activity: Map<string, Activity>

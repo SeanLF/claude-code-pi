@@ -374,6 +374,7 @@ function fakeWorld(): World {
     modes: new Map(),
     agents: new Map([['a1', pi]]),
     others: new Set(),
+    lost: new Set(),
     inboxes: new Map(),
     descriptions: new Map(),
     activity: new Map(),
