@@ -5,7 +5,7 @@ import type { Norm } from '../hooks/acp/norm'
 import { type Job, type Mark, pump } from '../hooks/acp/steps'
 import { codexEvents } from '../hooks/adapters/codex-children'
 import { type Children, childRun, route } from '../hooks/children'
-import { NODE, run, STEP } from './helpers'
+import { agentStore, NODE, run, STEP } from './helpers'
 
 // Invented messages; the envelopes and field names follow codex-acp 2.3.1-preview.9.
 const ROOT = 'parent-thread'
@@ -64,7 +64,7 @@ for (const title of [undefined, 'Orchard reviewer']) {
       update(parse, CHILD, { sessionUpdate: 'tool_call_update', toolCallId: 'read', status: 'completed', rawOutput: 'three pears' }),
     )
     routed(w, update(parse, ROOT, { sessionUpdate: 'subagent_update', sessionId: CHILD, state: { state: 'idle' } }))
-    w.nested.set('n1', { key: 'a1/parent-thread:subagent:helper-thread#1' })
+    w.nested.set('n1', 'a1/parent-thread:subagent:helper-thread#1')
     const child = await drain(
       childRun(w, 'n1', 'codex', { turnId: 'child', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})),
     )
@@ -139,7 +139,7 @@ test('a child emits a user row between assistant blocks without changing its sig
   ] as Norm[])
     route(w, 'a1', 'via:codex', { k: 'of', child: 'c', norm })
   route(w, 'a1', 'via:codex', { k: 'child', id: 'c', parent: ROOT, state: 'idle' })
-  w.nested.set('n1', { key: 'a1/c#1' })
+  w.nested.set('n1', 'a1/c#1')
   const child = await drain(
     childRun(w, 'n1', 'codex', { turnId: 'child', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})),
   )
@@ -154,12 +154,7 @@ test('a child emits a user row between assistant blocks without changing its sig
 test('the nested turn appends steering as a native user row between narration blocks', async ($, on) => {
   mock.clock(on)
   const files = new Map<string, string>()
-  const store = new Map<string, unknown>()
-  on('store.get', (_, e) => ({ value: store.get(e.key) }))
-  on('store.set', (_, e) => {
-    store.set(e.key, e.value)
-    return { value: undefined }
-  })
+  const store = agentStore(on, { a1: { harness: 'codex' } })
   on('fs.read', (_, e, next) => (files.has(e.path) ? { value: files.get(e.path) ?? '' } : next(e)))
   const rows: unknown[] = []
   mock.env(on, { HOME: '/home/u' })
@@ -214,9 +209,13 @@ test('the nested turn appends steering as a native user row between narration bl
   await $.turn.start({ turnId: 'child', agentId: 'n1', text: PROMPT })
   await run($, { ...STEP, index: 1 })
   const child = $.turn.step({ ...STEP, turnId: 'child', agentId: 'n1' })
+  let result: TurnStepResult | undefined
   for (;;) {
     const next = await child.next()
-    if (next.done) break
+    if (next.done) {
+      result = next.value
+      break
+    }
     if (next.value.kind === 'text') rows.push({ kind: 'text', text: next.value.text })
   }
   expect(rows.slice(0, 3)).toEqual([
@@ -224,6 +223,8 @@ test('the nested turn appends steering as a native user row between narration bl
     { kind: 'user', agentId: 'n1', message: { type: 'user', role: 'user', isMeta: true, content: [{ type: 'text', text: FOLLOW }] } },
     { kind: 'text', text: 'Three pears.' },
   ])
+  expect(result?.answer).toBe('Three pears.\n\n— answered by codex subagent')
+  expect(store.record('n1')?.report).toBe(result?.answer)
 })
 
 test('initial and collaboration prompt echoes do not duplicate native user rows', () => {
@@ -364,7 +365,7 @@ for (const echo of [true, false])
     send(ROOT, { toolCallId: call.toolCallId, sessionUpdate: 'tool_call_update', status: 'completed' })
     send(CHILD, { sessionUpdate: 'agent_message_chunk', messageId: 'reply', content: { type: 'text', text: 'pears.' } })
     send(ROOT, { sessionUpdate: 'subagent_update', sessionId: CHILD, state: { state: 'idle' } })
-    w.nested.set('n1', { key: `a1/${CHILD}#1` })
+    w.nested.set('n1', `a1/${CHILD}#1`)
     const child = await drain(
       childRun(w, 'n1', 'codex', { turnId: 'child', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})),
     )
@@ -385,7 +386,7 @@ for (const alreadyRead of [false, true])
     send(CHILD, { sessionUpdate: 'agent_message_chunk', messageId: 'answer', content: { type: 'text', text: 'The complete answer.' } })
     send(ROOT, { sessionUpdate: 'subagent_update', sessionId: CHILD, state: { state: 'idle' } })
     const key = `a1/${CHILD}#1`
-    w.nested.set('n1', { key })
+    w.nested.set('n1', key)
     const finish = () => drain(childRun(w, 'n1', 'codex', { turnId: 'child', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})))
     if (alreadyRead) expect((await finish()).result.answer).toBe('The complete answer.\n\n— answered by codex subagent')
     expect(send(ROOT, { sessionUpdate: 'tool_call_update', toolCallId: 'after-idle', status: 'completed' })).toEqual([])
