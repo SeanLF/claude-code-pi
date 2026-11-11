@@ -27,10 +27,10 @@ export type Records = {
 }
 
 // The store holds 4 MiB of JSON in all, shared with the model lists: KEPT agents with answers of at most
-// REPORT_KEPT characters stay well under it, so it cannot fill and stop saving.
+// REPORT_KEPT characters stay well under it (about 2.3 MiB at worst, all of it CJK), so it cannot fill and stop saving.
 const INDEX = 'agent-ids'
 const KEPT = 50
-const REPORT_KEPT = 32_000
+const REPORT_KEPT = 16_000
 const keyOf = (agentId: string) => `agent:${agentId}`
 type Store = Pick<EngineInterface, 'store' | 'ui'>
 
@@ -42,8 +42,12 @@ function unsaved(w: Records, $: Store, error: unknown): void {
   if (w.unsaved) return
   w.unsaved = true
   try {
+    let why = 'unknown error'
+    try {
+      why = String(error)
+    } catch {}
     $.ui.log(
-      `via could not read or save its agent records (${String(error)}): an agent resumed after a restart runs read-only, without its last answer.`,
+      `via could not read or save its agent records (${why}): an agent resumed after a restart runs read-only, without its last answer.`,
     )
   } catch {}
 }

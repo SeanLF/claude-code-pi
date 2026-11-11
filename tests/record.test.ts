@@ -75,7 +75,7 @@ test('a long answer is stored by its end, so the store cannot fill; memory keeps
   const answer = `${'x'.repeat(100_000)}\n\n— answered by pi, kimi`
   await updateRecord(w, $, 'a1', { report: answer })
   const saved = (held.get('agent:a1') as { report: string }).report
-  expect(saved.length).toBeLessThan(33_000)
+  expect(saved.length).toBeLessThan(17_000)
   expect(saved.endsWith('— answered by pi, kimi')).toBe(true)
   expect(w.records.get('a1')?.report).toBe(answer)
 })
