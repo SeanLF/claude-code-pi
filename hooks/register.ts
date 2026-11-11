@@ -321,8 +321,9 @@ export const register: Register = (on, options) => {
     $.ui.log(`via's step for ${adapter.name} failed (${why})`)
     endJob(world, agentId)
     const report = `The ${adapter.name}${record.nested ? ' subagent' : ''} failed: via could not render its next step.`
-    // A nested agent's later steps, here or in a new process, answer this rather than the cut-off.
-    if (record.nested) await updateRecord(world, $, agentId, { report })
+    // A nested agent's later steps, here or in a new process, answer this rather than the cut-off; an answer it
+    // already has is kept.
+    if (record.nested && !record.report) await updateRecord(world, $, agentId, { report })
     return yield* respond(e, textChunks(report), report)
   })
 }

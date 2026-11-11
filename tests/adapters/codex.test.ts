@@ -144,7 +144,13 @@ function arrange(
   on('fs.list', (_, e) => ({
     value:
       e.path === '/home/u/.claude/via/acp'
-        ? (o.acp ?? []).map((name) => ({ name, kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false }))
+        ? (o.acp ?? []).map((name) => ({
+            name,
+            kind: 'dir' as const,
+            size: 0,
+            mtimeMs: name === 'codex-acp-2.5.0' ? Date.now() : 0,
+            isLink: false,
+          }))
         : [{ name: 'config.toml', kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false }],
   }))
   on('fs.read', (_, e) => ({ value: `contents of ${e.path}` }))
@@ -458,7 +464,8 @@ test('a fresh install removes the codex-acp versions earlier releases installed,
   await runTurn($)
   await clock.settle()
   const removed = nodes.find((argv) => argv[1] === '-e')
-  expect(removed?.slice(3)).toEqual(['/home/u/.claude/via/acp/codex-acp-2.3.1-preview.9', '/home/u/.claude/via/acp/codex-acp-2.5.0'])
+  // 2.5.0 was used just now, perhaps by another session still on that release: it stays.
+  expect(removed?.slice(3)).toEqual(['/home/u/.claude/via/acp/codex-acp-2.3.1-preview.9'])
 })
 
 test('an install already in place removes nothing', async ($, on) => {

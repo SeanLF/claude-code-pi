@@ -136,8 +136,9 @@ test('an invalid defaultModel setting answers without spawning pi', { options: {
 
 test('a choice stored before a reload still applies to a follow-up', async ($, on) => {
   const spawns: Spawn[] = []
-  arrange(on, spawns, split(lines))
-  agentStore(on, { a1: { harness: 'pi', choice: { model: 'openrouter/kimi', tools: 'read', thinking: 'high' } } })
+  const store = arrange(on, spawns, split(lines))
+
+  store.seed('a1', { harness: 'pi', choice: { model: 'openrouter/kimi', tools: 'read', thinking: 'high' } })
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
   await run($)
   expectPiSpawn(spawns[0], ROOT, ['--model', 'openrouter/kimi', '--tools', 'read', '-na', '--thinking', 'high'])
@@ -227,8 +228,7 @@ async function spawnPi(
 }
 
 test('an auto-mode spawned agent hands back on its first step even without a session reminder', async ($, on) => {
-  const store = agentStore(on)
-  arrange(on, [], split(lines))
+  const store = arrange(on, [], split(lines))
   on('agent.spawn', () => ({ model: 'haiku', agentId: 'a1' }))
   await spawnPi($, 'auto')
   expect(store.record('a1')).toMatchObject({ harness: 'pi', handback: true, mode: 'auto' })
@@ -261,9 +261,9 @@ test('a fork in auto mode answers in plain text', async ($, on) => {
 })
 
 test('a fresh world hands back from the persisted decision alone', async ($, on) => {
-  arrange(on, [], split(lines))
-  // Nothing in this process's memory and no session reminder: only what the store kept.
-  agentStore(on, { a1: { harness: 'pi', handback: true } })
+  const store = arrange(on, [], split(lines))
+
+  store.seed('a1', { harness: 'pi', handback: true })
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
   const { result } = await run($)
   expect(result.stopReason).toBe('tool_use')
@@ -292,8 +292,9 @@ test('a step with no turn after a handback repeats the report as text, never a s
 })
 
 test('a step with no turn hands back a saved report that was never delivered', async ($, on) => {
-  arrange(on, [], split(lines))
-  const store = agentStore(on, { a1: { harness: 'pi', handback: true, report: 'the report', handedBack: false } })
+  const store = arrange(on, [], split(lines))
+
+  store.seed('a1', { harness: 'pi', handback: true, report: 'the report', handedBack: false })
   const first = await run($, { ...STEP, turnId: 't2' })
   expect(first.result.toolUses[0]).toEqual({ name: 'SubagentHandback', input: { message: 'the report' } })
   expect(store.record('a1')?.handedBack).toBe(true)
@@ -440,9 +441,8 @@ test('an aborted follow-up leaves no report for a step with no turn to repeat', 
 
 test("a second turn's run clears the first turn's report before spawning", async ($, on) => {
   const order: string[] = []
-  bottom(on)
+  const store = bottom(on)
   on('session.messages', () => ({ value: [] }))
-  const store = agentStore(on)
   on('process.spawn', async function* () {
     order.push(`spawn with report=${store.record('a1')?.report ?? 'none'}`)
     yield* split(lines)
@@ -568,8 +568,9 @@ test('two usage events report only the last model call', async ($, on) => {
 
 test("a choice line is kept in the agent's record", async ($, on) => {
   const spawns: Spawn[] = []
-  arrange(on, spawns, split(lines))
-  const store = agentStore(on, { a1: { harness: 'pi' } })
+  const store = arrange(on, spawns, split(lines))
+
+  store.seed('a1', { harness: 'pi' })
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'model: openrouter/kimi\ngo' })
   await run($)
   expect(store.record('a1')?.choice).toEqual({ model: 'openrouter/kimi' })
@@ -606,8 +607,9 @@ test('an agent that is not a via agent is looked up once, not on every step', as
 
 test('plan mode runs pi with only its reading tools, which also skips the project .pi extensions', async ($, on) => {
   const spawns: Spawn[] = []
-  arrange(on, spawns, split(lines))
-  agentStore(on, { a1: { harness: 'pi', mode: 'plan' } })
+  const store = arrange(on, spawns, split(lines))
+
+  store.seed('a1', { harness: 'pi', mode: 'plan' })
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'look around' })
   await run($)
   expect(spawns[0]?.argv).toEqual(expect.arrayContaining(['--tools', 'read,grep,find,ls', '-na']))
@@ -615,8 +617,9 @@ test('plan mode runs pi with only its reading tools, which also skips the projec
 
 test('plan mode overrides a pi tools line that could write, so pi still gets only its reading tools', async ($, on) => {
   const spawns: Spawn[] = []
-  arrange(on, spawns, split(lines))
-  agentStore(on, { a1: { harness: 'pi', mode: 'plan' } })
+  const store = arrange(on, spawns, split(lines))
+
+  store.seed('a1', { harness: 'pi', mode: 'plan' })
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'tools: bash,edit\nlook around' })
   await run($)
   expect(spawns[0]?.argv).toEqual(expect.arrayContaining(['--tools', 'read,grep,find,ls', '-na']))
@@ -658,8 +661,9 @@ test('an Esc that finds the run parked between steps ends the run, so its harnes
 
 test("a nested agent's end that wakes its via parent after the parent's run runs nothing and repeats the report", async ($, on) => {
   const spawns: Spawn[] = []
-  arrange(on, spawns, split(lines))
-  agentStore(on, { a1: { harness: 'pi', report: 'the report' } })
+  const store = arrange(on, spawns, split(lines))
+
+  store.seed('a1', { harness: 'pi', report: 'the report' })
   const text = `<task-notification>\n<task-id>n1</task-id>\n<tool-use-id>${CHILD_CALL}t1_1</tool-use-id>\n<status>completed</status>\n</task-notification>`
   await $.turn.start({ turnId: 't2', agentId: 'a1', text })
   const { result } = await run($, { ...STEP, turnId: 't2' })
@@ -734,4 +738,28 @@ test("an answer said before the run's last call is said again in the last step",
   const lastCall = chunks.findLastIndex((c) => c.kind === 'tool')
   const after = chunks.slice(lastCall + 1).map((c) => (c.kind === 'text' ? c.text : ''))
   expect(after.join('')).toBe('I need access to rex.\n\n— answered by pi, openrouter/kimi')
+})
+
+// Found only through agent.list (spawned before via loaded, evicted, or a store that did not answer): its
+// spawn's mode is unknown, so it runs read-only, never with more than the person gave; nothing is stored
+// over the real record.
+test('an agent via has no record of runs read-only, and its made-up record is never stored', async ($, on) => {
+  const spawns: Spawn[] = []
+  mock.env(on, ENV)
+  node(on)
+  const store = agentStore(on)
+  on('agent.list', () => ({ value: [{ id: 'a1', description: 'x', type: 'via:pi', status: 'running' }] }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('session.messages', () => ({ value: [] }))
+  on('fs.write', () => ({ value: undefined }))
+  on('process.spawn', async function* (_, e) {
+    spawns.push({ argv: [...e.argv], input: e.input, env: e.env })
+    yield* split(lines)
+    return { value: { code: 0, signal: null } }
+  })
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'look around' })
+  const { result } = await run($)
+  expect(spawns[0]?.argv).toEqual(expect.arrayContaining(['--tools', 'read,grep,find,ls', '-na']))
+  expect(result.answer).toContain('all done')
+  expect(store.record('a1')).toBeUndefined()
 })

@@ -73,6 +73,8 @@ export function bottom(on: TestOn, writes?: Write[] | 'reject', env: Record<stri
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e, next) => next(e))
   node(on, version)
+  // The record a1's spawn left: an agent with none would run read-only, its mode unknown.
+  return agentStore(on, { a1: { harness: 'pi' } })
 }
 
 // Every harness checks Node first, for the step server: a current one, and anything else run passes on.
@@ -90,13 +92,14 @@ export function arrange(
   writes?: Write[] | 'reject',
   version = NODE.stdout,
 ) {
-  bottom(on, writes, ENV, version)
+  const store = bottom(on, writes, ENV, version)
   on('session.messages', () => ({ value: rows }))
   on('process.spawn', async function* (_, e) {
     spawns.push({ argv: [...e.argv], input: e.input, env: e.env })
     yield* pieces
     return { value: { code, signal: null } }
   })
+  return store
 }
 
 export const split = (text: string) => [
@@ -184,5 +187,12 @@ export function agentStore(on: TestOn, records: Record<string, Partial<AgentReco
     held.delete(e.key)
     return { value: undefined }
   })
-  return { record: (id: string) => held.get(`agent:${id}`) as AgentRecord | undefined, held }
+  return {
+    record: (id: string) => held.get(`agent:${id}`) as AgentRecord | undefined,
+    // What another process, or the spawn, left for this agent.
+    seed: (id: string, record: Partial<AgentRecord>) => {
+      held.set(`agent:${id}`, { handback: false, mode: 'default', harness: 'pi', ...(held.get(`agent:${id}`) as object), ...record })
+    },
+    held,
+  }
 }

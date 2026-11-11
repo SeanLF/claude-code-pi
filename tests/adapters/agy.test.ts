@@ -284,6 +284,7 @@ test('the model probe runs alongside the run, not before it', async ($, on) => {
     spawned = resolve
   })
   mock.env(on, {})
+  agentStore(on, { a1: { harness: 'agy' } })
   on('agent.list', () => ({ value: [AGENT] }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e, next) => next(e))

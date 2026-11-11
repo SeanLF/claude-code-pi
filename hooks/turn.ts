@@ -3,11 +3,11 @@ import type { Choice } from '../types'
 import { endJob, type Job, type Mark, pump } from './acp/steps'
 import type { Adapter, Mode } from './adapter'
 import { childRun } from './children'
-import { deliver, handbackAsked, respond, textChunks } from './handback'
+import { deliver, HANDBACK_TOOL, handbackAsked, respond, textChunks } from './handback'
 import { relayReady } from './install'
 import { cachedModels } from './models'
 import { helpOf, isModel, promptOf } from './prompt'
-import { type AgentRecord, createRecord, recordOf, updateRecord } from './record'
+import { type AgentRecord, recordOf, updateRecord } from './record'
 import { cutOff, type RunResult, run } from './run'
 import { openInbox } from './steer'
 import type { Turn, World } from './world'
@@ -29,7 +29,9 @@ export async function adapterOf(w: World, $: Engine, agentId: string): Promise<A
   if (agent === undefined) return undefined
   const [plugin, name = ''] = agent.type.split(':')
   const adapter = plugin === $.plugin.name ? w.adapters.get(name) : undefined
-  if (adapter) void createRecord(w, $, agentId, { harness: adapter.name, handback: false, mode: 'default' })
+  // The spawn's mode is unknown here, so the strictest: a read-only run, never one with more permission than
+  // the person gave. In memory only, so a store that failed to answer cannot lose the real record.
+  if (adapter) w.records.set(agentId, { harness: adapter.name, handback: false, mode: 'plan', rebuilt: true })
   else w.others.add(agentId)
   return adapter
 }
@@ -97,7 +99,8 @@ async function* replay(
   force = false,
 ): AsyncGenerator<TurnStepChunk, TurnStepResult> {
   const said = record.report || cutOff(adapter.name)
-  if (!record.handedBack && (force || (await handbackOf($, agentId, record)))) {
+  // A transcript that cannot be read leaves the spawn's terms: a replay never fails over it.
+  if (!record.handedBack && (force || (await handbackOf($, agentId, record).catch(() => record.handback)))) {
     await updateRecord(w, $, agentId, { handedBack: true })
     return yield* deliver(adapter.name, e, 0, said, null)
   }
@@ -132,8 +135,9 @@ async function* nestedStep(
   }
   const result = yield* pump(w, job, e, signal, joining($, agentId, job.turnId))
   // Its answer, once it has one, for a later step and a new process. childRun has handed it back by then.
+  // Handed back only if that step did: a run that could not be followed ends as text.
   if (job.final?.answer) {
-    const handedBack = await handbackOf($, agentId, record).catch(() => record.handback)
+    const handedBack = job.final.toolUses.some((use) => use.name === HANDBACK_TOOL)
     await updateRecord(w, $, agentId, { report: job.final.answer, handedBack })
   }
   return result

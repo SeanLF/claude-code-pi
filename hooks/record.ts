@@ -14,6 +14,9 @@ export type AgentRecord = {
   session?: string // the harness's session, which its next turn resumes
   report?: string // its last answer
   handedBack?: boolean // that answer has gone back
+  // Made up in this process for an agent with no record it could read (spawned before via loaded, evicted, or
+  // a store that failed): never stored, so it cannot overwrite the real one.
+  rebuilt?: true
 }
 
 export type Records = {
@@ -65,6 +68,7 @@ export function updateRecord(w: Records, $: Store, agentId: string, change: Part
   const held = w.records.get(agentId)
   if (held === undefined) return Promise.resolve()
   Object.assign(held, change)
+  if (held.rebuilt) return Promise.resolve()
   const snapshot = { ...held }
   return persist(w, () => $.store.set(keyOf(agentId), snapshot))
 }
