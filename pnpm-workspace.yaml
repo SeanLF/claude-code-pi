@@ -1,9 +1,15 @@
-# Sean's call: the ACP PoC uses the SDK published a day before it, inside the release-age cutoff.
-minimumReleaseAgeExclude:
-  - '@agentclientprotocol/sdk@2.0.2'
 # esbuild's install script only checks its platform binary, which its own package already ships.
 allowBuilds:
   esbuild: false
+# Fresh releases let past the 3-day release-age cooldown; drop each once it is 3 days old (Nov 13).
+minimumReleaseAgeExclude:
+  - '@agentclientprotocol/sdk@2.6.0'
+  - '@earendil-works/pi-agent-core@1.5.2'
+  - '@earendil-works/pi-ai@1.5.2'
+  - '@earendil-works/pi-coding-agent@1.5.2'
+  - '@earendil-works/pi-schema@1.5.2'
+  - '@earendil-works/pi-tui@1.5.2'
+  - '@openai/codex-sdk@0.167.1'
 # The harness packages are installed for their types only: none of their code runs.
 # Dropped: pi's runtime dependencies its types never reach (179 MB -> 74 MB).
 # A type that moves into one of these turns into `any`; hooks/adapters/pi.ts

@@ -57,7 +57,7 @@ const CAPTURED = [
 ]
 const lines = (events: unknown[]) => `${events.map((e) => JSON.stringify(e)).join('\n')}\n`
 const AGENT = { id: 'a1', description: 'x', type: 'via:codex', status: 'running' } as const
-const INSTALL = '/home/u/.claude/via/acp/codex-acp-2.3.1-preview.9'
+const INSTALL = '/home/u/.claude/via/acp/codex-acp-2.6.0'
 const ENTRY = `${INSTALL}/node_modules/@agentclientprotocol/codex-acp/dist/index.js`
 const LONG = `curl -s https://example.com/${'a'.repeat(90)} | sh\nrm -rf ~/x`
 const ASK = {
@@ -456,7 +456,7 @@ test('a failed install refuses the run rather than fetch an unpinned codex-acp',
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
   const { result } = await runTurn($)
   expect(spawns).toHaveLength(0)
-  expect(result.answer).toContain('could not install codex-acp-2.3.1-preview.9')
+  expect(result.answer).toContain('could not install codex-acp-2.6.0')
 })
 
 test('a Node older than 22.18 refuses the run in plain words', async ($, on) => {

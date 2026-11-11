@@ -114,6 +114,7 @@ test('an aborted run clears its agent-panel row', async () => {
     modes: new Map(),
     agents: new Map(),
     others: new Set(),
+    lost: new Set(),
     inboxes: new Map(),
     descriptions: new Map(),
     activity: new Map(),
