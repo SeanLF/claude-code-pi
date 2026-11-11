@@ -60,6 +60,9 @@ export async function* run(
   let buffer = ''
   let stderr = ''
   let report = ''
+  // Text since the last call: Claude Code takes the last step's text as the answer, so an answer said
+  // before the run's last call is said again at the end (finish).
+  let spoke = false
   let answeredBy = ''
   const notices: string[] = []
   const parse = adapter.events(session)
@@ -138,6 +141,7 @@ export async function* run(
           break
         case 'text':
           report += event.t
+          spoke = true
           chunks.push(push('text', event.t))
           break
         case 'thinking':
@@ -145,6 +149,7 @@ export async function* run(
           break
         case 'call': {
           kind = undefined
+          spoke = false
           open.add(event.id)
           if (event.kind === 'compact') compacting.add(event.id)
           const input = { kind: event.kind, title: event.title, ...(event.path ? { path: event.path } : {}) }
@@ -157,6 +162,7 @@ export async function* run(
           if (listed === plan) break
           plan = listed
           kind = undefined
+          spoke = false
           plans += 1
           const id = `plan-${plans}`
           chunks.push({ kind: 'call-start', id, input: { kind: 'plan', title: 'Plan' }, usage: usageNow() })
@@ -172,7 +178,10 @@ export async function* run(
         case 'of': {
           // Only a spawn, a step of its own, ends the text block it falls in.
           const marks = route(w, agentId, `${$.plugin.name}:${adapter.name}`, event)
-          if (marks.length > 0) kind = undefined
+          if (marks.length > 0) {
+            kind = undefined
+            spoke = false
+          }
           chunks.push(...marks)
           break
         }
@@ -315,6 +324,7 @@ export async function* run(
     report,
     answeredBy,
     failure,
+    restate: !spoke,
     steered,
     inbox,
     total: last,
