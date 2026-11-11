@@ -380,14 +380,18 @@ for (const alreadyRead of [false, true])
     routed(w, announce(parse))
     const send = (session: string, value: unknown) => routed(w, update(parse, session, value))
     send(ROOT, {
-      sessionUpdate: 'tool_call', toolCallId: 'after-idle', title: 'sendInput', status: 'in_progress',
+      sessionUpdate: 'tool_call',
+      toolCallId: 'after-idle',
+      title: 'sendInput',
+      status: 'in_progress',
       rawInput: { prompt: FOLLOW, receiverThreadIds: ['helper-thread'] },
     })
     send(CHILD, { sessionUpdate: 'agent_message_chunk', messageId: 'answer', content: { type: 'text', text: 'The complete answer.' } })
     send(ROOT, { sessionUpdate: 'subagent_update', sessionId: CHILD, state: { state: 'idle' } })
     const key = `a1/${CHILD}#1`
     w.nested.set('n1', key)
-    const finish = () => drain(childRun(w, 'n1', 'codex', { turnId: 'child', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})))
+    const finish = () =>
+      drain(childRun(w, 'n1', 'codex', { turnId: 'child', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})))
     if (alreadyRead) expect((await finish()).result.answer).toBe('The complete answer.\n\n— answered by codex subagent')
     expect(send(ROOT, { sessionUpdate: 'tool_call_update', toolCallId: 'after-idle', status: 'completed' })).toEqual([])
     expect(w.channels.get(`a1/${CHILD}`)?.key).toBe(key)
