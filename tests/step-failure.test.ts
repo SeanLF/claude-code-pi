@@ -111,3 +111,72 @@ test("a nested step whose hook throws ends in via, never as a model request with
   expect(result.toolUses).toEqual([])
   expect(child.requests()).toBe(0)
 })
+
+test('a step whose hook throws says why in the log, not only in the answer', async ($, on) => {
+  const logged: string[] = []
+  on('ui.log', (_, e) => {
+    logged.push(e.text)
+    return { value: undefined }
+  })
+  const child = await nestedChild($, on, undefined, 'state')
+  await run($, { ...STEP, turnId: 'nested', agentId: 'n1' })
+  expect(logged.some((line) => line.includes("via's step for codex failed") && line.includes('state unavailable'))).toBe(true)
+  expect(child.requests()).toBe(0)
+})
+
+test("a nested agent's spawn and answer are kept for a new process", async ($, on) => {
+  const store = new Map<string, unknown>()
+  on('store.get', (_, e) => ({ value: store.get(e.key) }))
+  on('store.set', (_, e) => {
+    store.set(e.key, e.value)
+    return { value: undefined }
+  })
+  const saved = new Map<string, unknown>()
+  on('state.set', (_, e, next) => {
+    saved.set(`${e.key}:${e.id}`, e.value)
+    return next(e)
+  })
+  const child = await nestedChild($, on)
+  expect((store.get('agents') as Record<string, unknown>)?.n1).toEqual({ harness: 'codex', handback: false, nested: true })
+  const pending = run($, { ...STEP, turnId: 'nested', agentId: 'n1', model: 'gpt-6-luna' })
+  await child.clock.settle()
+  await child.finish()
+  const { result } = await pending
+  expect(saved.get('reports:n1')).toBe(result.answer)
+})
+
+// A new process (a session sent to the background) resumes a nested agent as general-purpose, with no
+// spawn and no parent run: its saved answer, or the cut-off, and never a request to the model.
+function newProcess(on: On, report?: string) {
+  mock.env(on, { HOME: '/home/u' })
+  on('agent.list', () => ({ value: [{ id: 'n1', description: 'List acp', type: 'general-purpose', status: 'running' }] }))
+  on('store.get', (_, e) => ({ value: e.key === 'agents' ? { n1: { harness: 'codex', handback: false, nested: true } } : undefined }))
+  on('state.get', (_, e, next) => (e.key === 'reports' && report !== undefined ? { value: { value: report, version: 1 } } : next(e)))
+  let spawned = 0
+  // biome-ignore lint/correctness/useYield: a streaming hook must be an async generator, even one that answers at once
+  on('process.spawn', async function* () {
+    spawned += 1
+    return { value: { code: 0, signal: null } }
+  })
+  on('session.messages', () => ({ value: [] }))
+  return { requests: fallback(on), spawned: () => spawned }
+}
+
+test('a nested agent in a new process answers with its saved answer', async ($, on) => {
+  const fresh = newProcess(on, 'steps.ts\n\n— answered by codex subagent, gpt-6-luna')
+  const { result } = await run($, { ...STEP, turnId: 'resumed', agentId: 'n1' })
+  expect(result.answer).toBe('steps.ts\n\n— answered by codex subagent, gpt-6-luna')
+  expect(fresh.requests()).toBe(0)
+  expect(fresh.spawned()).toBe(0)
+})
+
+test('a nested agent in a new process with no saved answer says it was cut off, and runs nothing', async ($, on) => {
+  const fresh = newProcess(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  // Even with a turn: the nested agent's prompt is its parent's harness's to run, not a new run's.
+  await $.turn.start({ turnId: 'resumed', agentId: 'n1', text: 'List acp' })
+  const { result } = await run($, { ...STEP, turnId: 'resumed', agentId: 'n1' })
+  expect(result.answer).toContain('codex run was cut off before it answered')
+  expect(fresh.requests()).toBe(0)
+  expect(fresh.spawned()).toBe(0)
+})
