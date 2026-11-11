@@ -146,7 +146,9 @@ test("a child's consecutive messages have separate text blocks and only the last
   }
   route(w, 'a1', 'via:codex', { k: 'child', id: 'c', parent: 'root', state: 'idle' })
   w.nested.set('n1', { key: 'a1/c#1' })
-  const { out, result } = await drain(childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false))
+  const { out, result } = await drain(
+    childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})),
+  )
   expect(out.slice(0, 2)).toEqual([
     { kind: 'text', index: 0, text: 'Reading the code.' },
     { kind: 'text', index: 1, text: 'The code is correct.' },
