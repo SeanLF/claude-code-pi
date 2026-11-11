@@ -3,6 +3,7 @@ import { drawCall, drawGroup } from './acp/render'
 import { answerCall, CHILD_CALL, endJob, waitStep } from './acp/steps'
 import type { Adapter } from './adapter'
 import { waitChild, woken } from './children'
+import { respond, textChunks } from './handback'
 import { HARNESSES } from './harnesses'
 import { cachedModels, refreshModels } from './models'
 import { descriptionOf, isModel, promptOf } from './prompt'
@@ -305,5 +306,15 @@ export const register: Register = (on, options) => {
 
   on('turn.step', async function* ($, e, next) {
     return yield* turnStep(world, $, e, next)
+  }).catch(async function* (_, e, next) {
+    // A via step that throws would otherwise be skipped, and the request would go to the model with the
+    // harness's model id. End the via turn with an explicit failure instead.
+    const adapter = e.agentId === undefined ? undefined : world.agents.get(e.agentId)
+    if (!adapter) return yield* next(e)
+    endJob(world, e.agentId as string)
+    const nested = world.nested.get(e.agentId as string)
+    const report = `The ${adapter.name}${nested ? ' subagent' : ''} failed: via could not render its next step.`
+    if (nested) nested.report = report
+    return yield* respond(e, textChunks(report), report)
   })
 }

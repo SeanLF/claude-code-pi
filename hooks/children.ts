@@ -192,7 +192,7 @@ export async function* childRun(
       continue
     }
     if (item.k === 'end') {
-      failure = item.failure
+      failure = item.failure ?? failure
       // Kept while the run goes on, so its late patches are known as this child's, not a new one.
       if (channel) channel.read = true
       if (channel?.closed) for (const [key, held] of w.channels) if (held === channel) w.channels.delete(key)
@@ -223,10 +223,14 @@ export async function* childRun(
       }
     } else if (item.k === 'called') yield { kind: 'call-end', id: item.id, output: item.output, failed: item.failed }
   }
-  const said = report.trim() || (failure ? `The ${name} subagent failed: ${failure}` : `The ${name} subagent ended without a message.`)
-  const signed = `${said}\n\n— answered by ${name} subagent${channel?.model ? `, ${channel.model}` : ''}`
+  // A failed child keeps what it said, then the failure in place of the signature: a signature says it answered.
+  const tail = failure
+    ? `The ${name} subagent failed: ${failure}`
+    : `— answered by ${name} subagent${channel?.model ? `, ${channel.model}` : ''}`
+  const said = report.trim() || (failure ? '' : `The ${name} subagent ended without a message.`)
+  const signed = [said, tail].filter(Boolean).join('\n\n')
   if (nested) nested.report = signed
-  yield text(`\n\n— answered by ${name} subagent${channel?.model ? `, ${channel.model}` : ''}`)
+  yield text(`${report.trim() ? '\n\n' : said ? `${said}\n\n` : ''}${tail}`)
   if (handback) return yield* deliver(name, e, { prompt: '', report: signed, delivered: false }, index + 1, signed, null)
   return yield* respond(e, [{ kind: 'stop', stopReason: 'end_turn', usage: null }], signed)
 }
