@@ -320,3 +320,76 @@ test('generic ACP parsing ignores Codex collaboration inputs', () => {
   })
   expect(norms.filter((n) => n.k === 'of')).toEqual([])
 })
+
+// codex-acp 2.6 gives a resumed AIR child a fresh ACP session, while collaboration input still
+// addresses the original Codex thread. Late lifecycle patches from an older generation stay old.
+test('steering reaches the newest AIR child generation, even after an old idle patch', () => {
+  const parse = start()
+  const first = 'helper-thread'
+  const second = `${first}:generation:2`
+  update(parse, ROOT, { sessionUpdate: 'subagent_update', sessionId: first, description: PROMPT })
+  update(parse, ROOT, { sessionUpdate: 'subagent_update', sessionId: first, state: { state: 'idle' } })
+  update(parse, ROOT, { sessionUpdate: 'subagent_update', sessionId: second, description: PROMPT })
+  update(parse, ROOT, { sessionUpdate: 'subagent_update', sessionId: first, state: { state: 'idle' } })
+  const norms = update(parse, ROOT, {
+    sessionUpdate: 'tool_call',
+    toolCallId: 'after-resume',
+    title: 'sendInput',
+    status: 'completed',
+    rawInput: { prompt: FOLLOW, receiverThreadIds: [first] },
+  })
+  expect(norms.filter((n) => n.k === 'of')).toEqual([{ k: 'of', child: second, norm: { k: 'user', t: FOLLOW } }])
+})
+
+for (const echo of [true, false])
+  test(`a late collaboration completion preserves the child's answer (native input echo: ${echo})`, async () => {
+    const parse = start()
+    const w = world()
+    routed(w, announce(parse))
+    const norms: Norm[] = []
+    const send = (session: string, value: unknown) => {
+      const next = update(parse, session, value)
+      norms.push(...next)
+      routed(w, next)
+    }
+    const call = {
+      toolCallId: 'late-completion',
+      title: 'sendInput',
+      kind: 'other',
+      rawInput: { prompt: FOLLOW, receiverThreadIds: ['helper-thread'] },
+    }
+    send(ROOT, { ...call, sessionUpdate: 'tool_call', status: 'in_progress' })
+    if (echo) send(CHILD, { sessionUpdate: 'user_message_chunk', messageId: 'follow', content: { type: 'text', text: FOLLOW } })
+    send(CHILD, { sessionUpdate: 'agent_message_chunk', messageId: 'reply', content: { type: 'text', text: 'Three ' } })
+    send(ROOT, { toolCallId: call.toolCallId, sessionUpdate: 'tool_call_update', status: 'completed' })
+    send(CHILD, { sessionUpdate: 'agent_message_chunk', messageId: 'reply', content: { type: 'text', text: 'pears.' } })
+    send(ROOT, { sessionUpdate: 'subagent_update', sessionId: CHILD, state: { state: 'idle' } })
+    w.nested.set('n1', { key: `a1/${CHILD}#1` })
+    const child = await drain(
+      childRun(w, 'n1', 'codex', { turnId: 'child', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})),
+    )
+    expect(norms.filter((n) => n.k === 'of' && n.norm.k === 'user')).toHaveLength(1)
+    expect(child.result.answer).toBe('Three pears.\n\n— answered by codex subagent')
+  })
+
+for (const alreadyRead of [false, true])
+  test(`a late acknowledgement after child idle never starts another assignment (read: ${alreadyRead})`, async () => {
+    const parse = start()
+    const w = world()
+    routed(w, announce(parse))
+    const send = (session: string, value: unknown) => routed(w, update(parse, session, value))
+    send(ROOT, {
+      sessionUpdate: 'tool_call', toolCallId: 'after-idle', title: 'sendInput', status: 'in_progress',
+      rawInput: { prompt: FOLLOW, receiverThreadIds: ['helper-thread'] },
+    })
+    send(CHILD, { sessionUpdate: 'agent_message_chunk', messageId: 'answer', content: { type: 'text', text: 'The complete answer.' } })
+    send(ROOT, { sessionUpdate: 'subagent_update', sessionId: CHILD, state: { state: 'idle' } })
+    const key = `a1/${CHILD}#1`
+    w.nested.set('n1', { key })
+    const finish = () => drain(childRun(w, 'n1', 'codex', { turnId: 'child', index: 0 }, new AbortController().signal, false, () => new Promise(() => {})))
+    if (alreadyRead) expect((await finish()).result.answer).toBe('The complete answer.\n\n— answered by codex subagent')
+    expect(send(ROOT, { sessionUpdate: 'tool_call_update', toolCallId: 'after-idle', status: 'completed' })).toEqual([])
+    expect(w.channels.get(`a1/${CHILD}`)?.key).toBe(key)
+    expect(w.channels.has(`a1/${CHILD}#2`)).toBe(false)
+    if (!alreadyRead) expect((await finish()).result.answer).toBe('The complete answer.\n\n— answered by codex subagent')
+  })

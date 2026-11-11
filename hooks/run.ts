@@ -147,6 +147,9 @@ export async function* run(
         case 'thinking':
           chunks.push(push('thinking', event.t))
           break
+        case 'user':
+          // The root already has native input rows; only nested channels display copied input.
+          break
         case 'call': {
           kind = undefined
           spoke = false

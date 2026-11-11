@@ -41,10 +41,13 @@ export function route(w: Children, agentId: string, type: string, event: Extract
   const id = event.k === 'child' ? event.id : event.child
   let channel = w.channels.get(key(id))
   const marks: Mark[] = []
+  // A display-only acknowledgement cannot reopen a view whose answer is already finished.
+  const late = event.k === 'of' && event.norm.k === 'user' && event.norm.preserveAnswer
+  if (late && (channel === undefined || channel.ended || channel.read)) return marks
   // A child is shown on its first sign of work or its announcement, never on a patch alone (codex-acp
   // clears its cancel capability after it goes idle). Work after an end is a new assignment of the same
   // child: a new nested agent, as Claude Code shows one; its model snapshot is not work.
-  const working = (event.k === 'of' && event.norm.k !== 'model') || (event.k === 'child' && event.state === 'running')
+  const working = (event.k === 'of' && event.norm.k !== 'model' && !late) || (event.k === 'child' && event.state === 'running')
   const announced = event.k === 'child' && (event.title !== undefined || event.description !== undefined)
   if (channel === undefined ? working || announced || event.k === 'of' : channel.ended && working) {
     const title = (event.k === 'child' ? event.title : undefined) ?? channel?.title ?? 'subagent'
@@ -224,9 +227,13 @@ export async function* childRun(
           ...(grand.description ? { description: grand.description } : {}),
         }
     } else if (item.k === 'user') {
-      report = ''
+      // An acknowledgement can arrive after the child's answer started streaming. It adds a row,
+      // without clearing that answer or turning its remaining chunks into a different reply.
+      if (!item.preserveAnswer) {
+        report = ''
+        spoke = false
+      }
       kind = undefined
-      spoke = false
       yield { kind: 'user', text: item.t }
     } else if (item.k === 'message') report = ''
     else if (item.k === 'text') {
