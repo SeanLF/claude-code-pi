@@ -1,5 +1,5 @@
 import { expect, mock, type TestBody, test } from 'claude-code/testing'
-import { NODE, run, STEP } from './helpers'
+import { NODE, run, runTurn, STEP } from './helpers'
 
 type On = Parameters<TestBody>[1]
 
@@ -33,7 +33,14 @@ const CAPTURED = [
 
 // A parent's run pauses at its Agent call; its next step supplies the child's answer, so the nested agent sits
 // on its empty queue until then (from #24's fixture).
-async function nestedChild($: Parameters<TestBody>[0], on: On, failure?: string, refused?: 'state', auto?: boolean) {
+async function nestedChild(
+  $: Parameters<TestBody>[0],
+  on: On,
+  failure?: string,
+  refused?: 'state',
+  auto?: boolean,
+  afterText: unknown[] = [],
+) {
   const clock = mock.clock(on)
   mock.env(on, { HOME: '/home/u' })
   on('agent.list', () => ({ value: [{ id: 'a1', description: 'parent', type: 'via:codex', status: 'running' }] }))
@@ -50,6 +57,7 @@ async function nestedChild($: Parameters<TestBody>[0], on: On, failure?: string,
       stream: 'stdout',
       text: line([
         CAPTURED[5],
+        ...afterText,
         failure
           ? {
               sessionId: ROOT,
@@ -222,4 +230,21 @@ test("an auto-mode nested agent's handback is marked done once it hands back, fo
   const { result } = await pending
   expect(result.toolUses[0]?.name).toBe('SubagentHandback')
   expect(saved.get('handedBack:n1')).toBe(true)
+})
+
+// The same as a top-level run: a child that answers and then makes one last call ends in a step of its own,
+// and Claude Code takes that step's text as the nested agent's answer.
+test("a nested child's answer said before its last call is said again in its last step", async ($, on) => {
+  const child = await nestedChild($, on, undefined, undefined, false, [
+    { sessionId: CHILD, update: { toolCallId: 'x', title: 'ls', kind: 'read', status: 'in_progress', sessionUpdate: 'tool_call' } },
+    { sessionId: CHILD, update: { toolCallId: 'x', status: 'failed', sessionUpdate: 'tool_call_update' } },
+  ])
+  const pending = runTurn($, { ...STEP, turnId: 'nested', agentId: 'n1', model: 'gpt-6-luna' })
+  await child.clock.settle()
+  await child.finish()
+  const { chunks, result } = await pending
+  expect(result.answer).toBe('steps.ts\n\n— answered by codex subagent, gpt-6-luna')
+  const lastCall = chunks.findLastIndex((c) => c.kind === 'tool')
+  const after = chunks.slice(lastCall + 1).map((c) => (c.kind === 'text' ? c.text : ''))
+  expect(after.join('')).toBe(result.answer)
 })

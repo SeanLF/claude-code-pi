@@ -162,6 +162,7 @@ export async function* run(
           if (listed === plan) break
           plan = listed
           kind = undefined
+          spoke = false
           plans += 1
           const id = `plan-${plans}`
           chunks.push({ kind: 'call-start', id, input: { kind: 'plan', title: 'Plan' }, usage: usageNow() })
@@ -177,7 +178,10 @@ export async function* run(
         case 'of': {
           // Only a spawn, a step of its own, ends the text block it falls in.
           const marks = route(w, agentId, `${$.plugin.name}:${adapter.name}`, event)
-          if (marks.length > 0) kind = undefined
+          if (marks.length > 0) {
+            kind = undefined
+            spoke = false
+          }
           chunks.push(...marks)
           break
         }

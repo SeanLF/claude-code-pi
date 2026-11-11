@@ -166,6 +166,9 @@ export async function* childRun(
   let kind: 'text' | undefined
   let report = ''
   let failure: string | undefined
+  // Text since the last call or spawn, each of which ends a step: an answer said before them is said
+  // again at the end, or the last step holds only the signature (Claude Code's answer is its text).
+  let spoke = false
   const text = (t: string): TurnStepChunk => {
     if (kind !== 'text') {
       kind = 'text'
@@ -201,6 +204,7 @@ export async function* childRun(
     if (item.k === 'spawn') {
       const grand = w.channels.get(item.child)
       kind = undefined
+      spoke = false
       if (grand)
         yield {
           kind: 'spawn',
@@ -212,9 +216,11 @@ export async function* childRun(
     } else if (item.k === 'message') report = ''
     else if (item.k === 'text') {
       report += item.t
+      spoke = true
       yield text(item.t)
     } else if (item.k === 'call') {
       kind = undefined
+      spoke = false
       yield {
         kind: 'call-start',
         id: item.id,
@@ -230,7 +236,7 @@ export async function* childRun(
   const said = report.trim() || (failure ? '' : `The ${name} subagent ended without a message.`)
   const signed = [said, tail].filter(Boolean).join('\n\n')
   if (nested) nested.report = signed
-  yield text(`${report.trim() ? '\n\n' : said ? `${said}\n\n` : ''}${tail}`)
+  yield text(`${report.trim() && spoke ? '\n\n' : said ? `${said}\n\n` : ''}${tail}`)
   if (handback) return yield* deliver(name, e, { prompt: '', report: signed, delivered: false }, index + 1, signed, null)
   return yield* respond(e, [{ kind: 'stop', stopReason: 'end_turn', usage: null }], signed)
 }

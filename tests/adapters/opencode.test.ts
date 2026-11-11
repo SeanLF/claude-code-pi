@@ -545,3 +545,17 @@ test('a background nested agent shows its harness subagent from the parent run',
   expect(nested.calls).toEqual([{ result: 'Done; no output reported.' }])
   expect(nested.result.answer).toBe('steps.ts\n\n— answered by opencode subagent')
 })
+
+// A plan row starts a step too: an answer followed by a last plan update (all done) would leave the last
+// step, whose text Claude Code takes as the answer, with only the signature.
+test('an answer followed by a last plan update is said again in the last step', async ($, on) => {
+  const spawns: Spawn[] = []
+  const plan = { sessionId: SID, update: { entries: [{ content: 'Run it', status: 'completed' }], sessionUpdate: 'plan' } }
+  arrange(on, spawns, { stdout: lines([...CAPTURED.slice(0, 8), plan, ...CAPTURED.slice(8)]) })
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  const { chunks, result } = await runTurn($)
+  expect(result.answer).toBe('DONE\n\n— answered by opencode, openrouter/~deepseek/deepseek-flash-latest')
+  const lastRow = chunks.findLastIndex((c) => c.kind === 'tool')
+  const after = chunks.slice(lastRow + 1).map((c) => (c.kind === 'text' ? c.text : ''))
+  expect(after.join('')).toBe(result.answer)
+})
