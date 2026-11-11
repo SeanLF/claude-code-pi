@@ -84,7 +84,7 @@ test('step groups stay collapsed from their first command through completion and
         expect(line.props.key).toBe('via-group')
         expect(line.props.marginTop).toBe(1)
         expect(line.children).toHaveLength(1)
-        expect(line.children[0].props.wrap).toBe('truncate-end')
+        expect(line.children[0]?.props.wrap).toBe('truncate-end')
         const label = `${isActive ? 'Running' : 'Ran'} ${count} ${count === 1 ? 'command' : 'commands'}`
         expect(texts(drawn).join('')).toBe(`${label}${isActive ? `… · echo ${count}` : ''}`)
         expect(props.isExpanded).toBe(false)
