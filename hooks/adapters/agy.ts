@@ -1,136 +1,83 @@
+import { relayEvents, sessionLost } from '../acp/events'
 import { isRecord } from '../acp/json'
+import { type AcpSpec, acpStart } from '../acp/spec'
 import type { Adapter, Norm } from '../adapter'
 
-// Written from agy 1.4.7's `--output-format stream-json`, captured 2026-10-24: agy publishes
-// no types for it (its Python SDK speaks a different protocol), so tests pin these shapes.
-type Usage = { input_tokens?: number; output_tokens?: number; cache_read_tokens?: number }
-type Step = {
-  step_index?: number
-  state?: 'ACTIVE' | 'DONE'
-  step_type?: string // open vocabulary: user_input, agent_response, tool, system_message, …
-  text_delta?: string
-  tool_name?: string
-  tool_info?: { parameters?: unknown }
-  usage?: Usage
+// agy runs with the person's own tool permission (always-proceed, request-review or strict in its
+// settings): its default mode asks only where that setting says to, and the question reaches the person,
+// except in bypass (approved) and dontAsk (denied). Its plan mode is not read-only (it ran a command that
+// wrote a file, tested live on 1.4.7), so via refuses plan mode and tools: read before readOnly is used.
+// A second session/prompt steers the running turn: agy ends the first prompt and carries on under the
+// second, taking the message at its next step (tested live on 1.5.7).
+// It loads an unknown session id as a new, empty session (1.5.7), so a load that replays nothing is lost.
+export const AGY: AcpSpec = {
+  name: 'agy',
+  // --sandbox confines the commands agy runs (credentials such as ~/.kube are refused by the OS, tested
+  // live); it does not stop agy's own file edits.
+  command: ['agy', 'acp', '--sandbox'],
+  steer: 'prompt',
+  loadReplays: true,
+  modes: { readOnly: { policy: 'deny' }, bypassPermissions: { policy: 'allow' }, dontAsk: { policy: 'deny' }, default: { policy: 'ask' } },
+  thinking: 'thought_level',
 }
-type AgyEvent =
-  | { event: 'init'; conversation_id?: string; init?: { model?: string } }
-  | { event: 'step_update'; step_update?: Step }
-  | { event: 'result'; result?: { status?: string; error?: unknown } }
-
-const THINKING = ['low', 'medium', 'high', 'xhigh', 'max'] as const
-
-function wire(line: string): AgyEvent | undefined {
-  try {
-    const parsed: unknown = JSON.parse(line)
-    return isRecord(parsed) && typeof parsed.event === 'string' ? (parsed as AgyEvent) : undefined
-  } catch {
-    return undefined
-  }
-}
-
-const clip = (text: string) => (text.length > 100 ? `${text.slice(0, 100)}…` : text)
-
-const flags = (choice: { model?: string; thinking?: string }) => [
-  ...(choice.model ? ['--model', choice.model] : []),
-  ...(choice.thinking ? ['--effort', choice.thinking] : []),
-]
 
 export const agy = {
   name: 'agy',
   bin: 'agy',
   about:
     'Antigravity CLI agent: Gemini, Claude and GPT-OSS models through a Google account, own tools (edits files, runs sandboxed commands; no read-only mode).',
-  // One `id<TAB>name` per line; agy says it is fetching on stderr.
+  // One `id<TAB>name` per line; agy says it is fetching on stderr. Its session takes these ids too: a
+  // Gemini one with an effort suffix (gemini-3.8-flash-low) sets the model and its thought_level.
   catalogue: { argv: ['agy', 'models'], ids: (stdout: string) => stdout.split('\n').map((line) => line.split('\t')[0]?.trim() ?? '') },
-  // Neither --mode plan nor --sandbox is read-only: plan mode ran a command that wrote a file
-  // (tested live on 1.4.7), and --sandbox restricts only terminal commands.
   readOnly: 'none',
-  thinking: THINKING,
-  steer: false,
+  // The levels Gemini offers; agy refuses one for a model that has none (its Claude models), and the run says so.
+  thinking: ['low', 'medium', 'high'],
+  steer: true,
   defaultModel: false,
-  // The prompt is plain stdin. Slash commands are off, or a prompt starting with `/` runs one.
-  // --sandbox confines the commands agy runs (credentials such as ~/.kube are refused by the OS,
-  // tested live); it does not stop agy's own file edits.
-  start: ({ choice, prompt, session }) => ({
-    argv: [
-      'agy',
-      '--output-format',
-      'stream-json',
-      '--disable-slash-commands',
-      '--sandbox',
-      ...flags(choice),
-      ...(session ? ['--conversation', session] : []),
-    ],
-    input: prompt,
-  }),
-  // `/model` resolves the flags to the exact model, effort variant included, without a turn.
-  probe: {
-    argv: (choice) => ['agy', '--output-format', 'json', ...flags(choice), '-p=/model'],
-    model: (stdout) => {
-      try {
-        const parsed: unknown = JSON.parse(stdout)
-        const id = isRecord(parsed) && isRecord(parsed.command) && isRecord(parsed.command.data) ? parsed.command.data.id : undefined
-        return typeof id === 'string' && id ? id : undefined
-      } catch {
-        return undefined
-      }
-    },
-  },
-  events: (session) => {
-    let speaking: number | undefined
+  relay: {},
+  // The prompt goes as text: a leading / is not run as a command over ACP (tested live on 1.5.7).
+  start: ({ choice, prompt, session, root, inbox, mode }) =>
+    acpStart(AGY, { root, prompt, readOnly: false, mode, inbox, session, model: choice.model, thinking: choice.thinking }),
+  // A command that outlasts its wait (WaitMsBeforeAsync, which agy caps at 10 s) goes to the background
+  // and agy ends its turn without it. agy wakes when it ends, but holds that turn's updates until the next
+  // prompt (google-antigravity/antigravity-cli#1461, open on 1.5.7), so the relay stops it with the run.
+  events: () => {
+    const read = relayEvents()
+    const running = new Map<string, string>()
     return (line): Norm[] => {
-      const e = wire(line)
-      switch (e?.event) {
-        case 'init': {
-          const id = e.conversation_id
-          const out: Norm[] = typeof id === 'string' && id ? [{ k: 'session', id }] : []
-          // Empty on 1.4.7; claudexor reads it, so a version that fills it is believed over the probe.
-          if (typeof e.init?.model === 'string' && e.init.model) out.push({ k: 'model', name: e.init.model })
-          // A missing conversation is only a warning: agy starts a new one and succeeds.
-          if (session && id && id !== session)
-            out.push({
-              k: 'notice',
-              t: "agy could not find this agent's earlier conversation, so this answer comes from a new one without that context.",
-            })
-          return out
-        }
-        case 'step_update': {
-          const s = e.step_update
-          if (s?.step_type === 'agent_response') {
-            const out: Norm[] = []
-            // Each agent_response step is one message; only the last is the answer.
-            if (s.step_index !== speaking) {
-              speaking = s.step_index
-              out.push({ k: 'message' })
-            }
-            if (typeof s.text_delta === 'string' && s.text_delta) out.push({ k: 'text', t: s.text_delta })
-            // Per step, never result.usage too: that is the same tokens summed.
-            // input_tokens excludes cached reads: a captured step read 17582 cached tokens on 3464 input.
-            if (s.state === 'DONE' && s.usage) {
-              const u = s.usage
-              out.push({
-                k: 'usage',
-                usage: { input: u.input_tokens ?? 0, cacheRead: u.cache_read_tokens ?? 0, cacheWrite: 0, output: u.output_tokens ?? 0 },
-              })
-            }
-            return out
-          }
-          // A tool step comes twice, ACTIVE then DONE: one line for it.
-          if (s?.step_type === 'tool' && s.state === 'ACTIVE')
-            return [{ k: 'tool', t: `\n▸ ${String(s.tool_name)}: ${clip(JSON.stringify(s.tool_info?.parameters ?? {}) ?? '')}\n` }]
-          return []
-        }
-        case 'result': {
-          const status = e.result?.status
-          if (status === undefined || status === 'SUCCESS') return []
-          const why = e.result?.error
-          return [{ k: 'error', message: typeof why === 'string' && why ? why : `agy ended with status ${status}` }]
-        }
-        default:
-          return []
+      const out = read(line)
+      for (const n of out) {
+        if (n.k === 'call' && n.kind === 'execute') running.set(n.id, n.title)
+        else if (n.k === 'called') running.delete(n.id)
       }
+      // At the run's end, not a prompt's: a steer ends a prompt while its command still runs.
+      if (running.size === 0 || !line.includes('"done"')) return out
+      let done: unknown
+      try {
+        done = JSON.parse(line)
+      } catch {
+        return out
+      }
+      if (!isRecord(done) || done.relay !== 'done') return out
+      const left = [...running.values()].map((title) => `\`${title}\``).join(', ')
+      running.clear()
+      return [
+        ...out,
+        {
+          k: 'notice',
+          t: `agy sent ${left} to the background and ended its turn before it finished, so its result is not in this answer. via stopped it when the run ended.`,
+        },
+      ]
     }
   },
-  model: (choice) => choice.model,
+  // The relay names the model the session runs on.
+  model: () => undefined,
+  failure: (_exit, stderr) =>
+    sessionLost(stderr)
+      ? {
+          message:
+            "agy could not find this agent's earlier session, so this message did not run. Send it again to start a new agy session.",
+          sessionLost: true,
+        }
+      : undefined,
 } as const satisfies Adapter

@@ -1,81 +1,115 @@
 import { expect, mock, type TestBody, test } from 'claude-code/testing'
-
+import { relayEvents } from '../../hooks/acp/events'
+import { agy } from '../../hooks/adapters/agy'
 import type { AgentRecord } from '../../hooks/record'
-import { agentStore, run, STEP } from '../helpers'
+import { agentStore, ROOT, runTurn } from '../helpers'
 
 type TestOn = Parameters<TestBody>[1]
-type Spawn = { argv: string[]; input: string | undefined }
+type Spawn = { argv: string[]; input: string | undefined; env?: Record<string, string> }
 
-// Captured from agy 1.4.7 `--output-format stream-json` (2026-10-24), compacted: init's tool
-// list, tool outputs and timings dropped; every field the adapter reads kept as captured.
-const RUN = `${[
-  '{"event":"init","conversation_id":"bcaf913f-b720-4789-919c-194b72343a9d","init":{"permission_mode":"always-proceed"}}',
-  '{"event":"step_update","step_update":{"step_index":0,"state":"DONE","step_type":"user_input"}}',
-  '{"event":"step_update","step_update":{"step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"PONG7"}}',
-  '{"event":"step_update","step_update":{"step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"\\n","usage":{"input_tokens":7849,"output_tokens":293,"thinking_tokens":290,"cache_read_tokens":0,"total_tokens":8142}}}',
-  '{"event":"result","result":{"status":"SUCCESS","num_turns":1,"usage":{"input_tokens":7849,"output_tokens":293,"thinking_tokens":290,"cache_read_tokens":0,"total_tokens":8142}}}',
-].join('\n')}\n`
-// A question that read a file, then answered; the last step read 17582 cached tokens.
-const TOOLS = `${[
-  '{"event":"init","conversation_id":"3cc9bc03-3f0a-499f-b17c-f701c893df9b","init":{"permission_mode":"always-proceed"}}',
-  '{"event":"step_update","step_update":{"step_index":0,"state":"DONE","step_type":"user_input"}}',
-  '{"event":"step_update","step_update":{"step_index":1,"state":"DONE","step_type":"agent_response","usage":{"input_tokens":8649,"output_tokens":639,"thinking_tokens":556,"cache_read_tokens":0,"total_tokens":9288}}}',
-  '{"event":"step_update","step_update":{"step_index":2,"state":"ACTIVE","step_type":"tool","tool_name":"read_file","tool_info":{"name":"read_file","parameters":{"Path":"/w/seed"}}}}',
-  '{"event":"step_update","step_update":{"step_index":2,"state":"DONE","step_type":"tool","tool_name":"read_file","tool_info":{"name":"read_file","parameters":{"Path":"/w/seed"}}}}',
-  '{"event":"step_update","step_update":{"step_index":23,"state":"ACTIVE","step_type":"agent_response","text_delta":"seed"}}',
-  '{"event":"step_update","step_update":{"step_index":23,"state":"DONE","step_type":"agent_response","text_delta":"\\n","usage":{"input_tokens":3464,"output_tokens":868,"thinking_tokens":867,"cache_read_tokens":17582,"total_tokens":4332}}}',
-  '{"event":"result","result":{"status":"SUCCESS","num_turns":1,"usage":{"input_tokens":139191,"output_tokens":3048,"thinking_tokens":2250,"cache_read_tokens":17582,"total_tokens":142239}}}',
-].join('\n')}\n`
-// Text, a tool, then text: two agent_response steps (agy's own result.response joins both).
-const TWO = `${[
-  '{"event":"init","conversation_id":"1c67bfa1-e8e9-427f-9649-abf2256322ac","init":{"permission_mode":"always-proceed"}}',
-  '{"event":"step_update","step_update":{"step_index":0,"state":"DONE","step_type":"user_input"}}',
-  '{"event":"step_update","step_update":{"step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"Checking the file now"}}',
-  '{"event":"step_update","step_update":{"step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"."}}',
-  '{"event":"step_update","step_update":{"step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"\\n","usage":{"input_tokens":7868,"output_tokens":1424,"thinking_tokens":1335,"cache_read_tokens":0,"total_tokens":9292}}}',
-  '{"event":"step_update","step_update":{"step_index":2,"state":"ACTIVE","step_type":"tool","tool_name":"read_file","tool_info":{"name":"read_file","parameters":{"Path":"/w/seed2"}}}}',
-  '{"event":"step_update","step_update":{"step_index":2,"state":"DONE","step_type":"tool","tool_name":"read_file","tool_info":{"name":"read_file","parameters":{"Path":"/w/seed2"}}}}',
-  '{"event":"step_update","step_update":{"step_index":3,"state":"ACTIVE","step_type":"agent_response","text_delta":"zebra-41"}}',
-  '{"event":"step_update","step_update":{"step_index":3,"state":"DONE","step_type":"agent_response","text_delta":"\\n","usage":{"input_tokens":9381,"output_tokens":70,"thinking_tokens":66,"cache_read_tokens":0,"total_tokens":9451}}}',
-  '{"event":"result","result":{"status":"SUCCESS","num_turns":1,"usage":{"input_tokens":17249,"output_tokens":1494,"thinking_tokens":1401,"cache_read_tokens":0,"total_tokens":18743}}}',
-].join('\n')}\n`
-// A follow-up resumed with --conversation: the same id comes back.
-const RESUMED = `${[
-  '{"event":"init","conversation_id":"f99e03a5-cc1d-480b-89df-72c64d19928d","init":{"permission_mode":"always-proceed"}}',
-  '{"event":"step_update","step_update":{"step_index":4,"state":"DONE","step_type":"user_input"}}',
-  '{"event":"step_update","step_update":{"step_index":5,"state":"DONE","step_type":"system_message"}}',
-  '{"event":"step_update","step_update":{"step_index":6,"state":"ACTIVE","step_type":"agent_response","text_delta":"zebra-41"}}',
-  '{"event":"step_update","step_update":{"step_index":6,"state":"DONE","step_type":"agent_response","text_delta":"\\n","usage":{"input_tokens":8593,"output_tokens":49,"thinking_tokens":45,"cache_read_tokens":0,"total_tokens":8642}}}',
-  '{"event":"result","result":{"status":"SUCCESS","num_turns":2,"usage":{"input_tokens":24752,"output_tokens":485,"thinking_tokens":393,"cache_read_tokens":0,"total_tokens":25237}}}',
-].join('\n')}\n`
-const RESUMED_ID = 'f99e03a5-cc1d-480b-89df-72c64d19928d'
-const RUN_ID = 'bcaf913f-b720-4789-919c-194b72343a9d'
+const SID = '784551ca-bc91-4918-b567-918d86773b8a'
+const update = (u: Record<string, unknown>) => ({ sessionId: SID, update: u })
+const text = (sessionUpdate: string, t: string) => update({ content: { text: t, type: 'text' }, sessionUpdate })
+// Captured from relay/relay.mjs over `agy acp --sandbox` (agy 1.5.7, gemini-3.8-flash, thought_level
+// medium, 2026-11-12), trimmed: paths shortened to /w, rawInput dropped. agy sends no message ids, a
+// command's output with its own header, and usage only with the prompt's end.
+const CAPTURED = [
+  { relay: 'session', sessionId: SID, cwd: '/w' },
+  { relay: 'model', name: 'gemini-3.8-flash' },
+  { relay: 'steered' },
+  text('user_message_chunk', 'Change the word one in a.txt to two, then run: cat a.txt. Reply with only its output.\n'),
+  update({ title: 'Modify And View File Content', sessionUpdate: 'session_info_update' }),
+  text('agent_thought_chunk', 'Inspecting `a.txt` to confirm its initial contents are as expected is essential.\n\n\n'),
+  update({
+    toolCallId: 'call_6441692960902954804',
+    title: 'File a.txt',
+    kind: 'edit',
+    status: 'in_progress',
+    locations: [{ path: '/w/a.txt' }],
+    sessionUpdate: 'tool_call',
+  }),
+  update({
+    toolCallId: 'call_6441692960902954804',
+    kind: 'edit',
+    status: 'completed',
+    title: 'File a.txt',
+    content: [{ path: '/w/a.txt', oldText: 'one\n\n', newText: 'two\n\n', type: 'diff' }],
+    locations: [{ path: '/w/a.txt' }],
+    rawOutput: {},
+    sessionUpdate: 'tool_call_update',
+  }),
+  update({
+    toolCallId: 'call_11720483526496352900',
+    title: 'cat a.txt',
+    kind: 'execute',
+    status: 'in_progress',
+    sessionUpdate: 'tool_call',
+  }),
+  update({
+    toolCallId: 'call_11720483526496352900',
+    kind: 'execute',
+    status: 'completed',
+    title: 'cat a.txt',
+    content: [
+      {
+        content: {
+          text: 'Created At: 2026-11-12T21:09:41-05:00\nCompleted At: 2026-11-12T21:09:41-05:00\nCommand exited with code 0.\n\nCommand output:\ntwo\r\n',
+          type: 'text',
+        },
+        type: 'content',
+      },
+    ],
+    sessionUpdate: 'tool_call_update',
+  }),
+  text('agent_message_chunk', 'two'),
+  {
+    relay: 'prompt_done',
+    stopReason: 'end_turn',
+    usage: { inputTokens: 38229, outputTokens: 396, cachedReadTokens: 0, cachedWriteTokens: 0, thoughtTokens: 169, totalTokens: 38625 },
+  },
+  { relay: 'done', stopReason: 'end_turn' },
+]
+// Captured the same way: `sleep 63` outlasted the 10 s agy chose to wait, went to the background, and
+// agy ended its turn. The call never ends here: agy holds its end for the next prompt.
+const BACKGROUND = [
+  { relay: 'session', sessionId: SID, cwd: '/w' },
+  { relay: 'model', name: 'gemini-3.8-flash' },
+  { relay: 'steered' },
+  update({
+    toolCallId: 'call_17337065234406006923',
+    title: 'sleep 63',
+    kind: 'execute',
+    status: 'in_progress',
+    sessionUpdate: 'tool_call',
+  }),
+  text('agent_message_chunk', 'Started '),
+  text('agent_message_chunk', '`sleep 63` in the background. Waiting for it to finish.'),
+  {
+    relay: 'prompt_done',
+    stopReason: 'end_turn',
+    usage: { inputTokens: 18518, outputTokens: 56, cachedReadTokens: 0, cachedWriteTokens: 0, thoughtTokens: 0, totalTokens: 18574 },
+  },
+  { relay: 'done', stopReason: 'end_turn' },
+]
+const lines = (events: unknown[]) => `${events.map((e) => JSON.stringify(e)).join('\n')}\n`
 const AGENT = { id: 'a1', description: 'x', type: 'via:agy', status: 'running' } as const
-const MODEL = JSON.stringify({ status: 'SUCCESS', command: { name: 'model', data: { id: 'gemini-3.8-flash-high', effort: 'high' } } })
 
 function arrange(
   on: TestOn,
   spawns: Spawn[],
-  // record: what the agent's record holds at the start, as an earlier turn or process left it.
-  out: { stdout?: string; stderr?: string; code?: number; record?: Partial<AgentRecord> } = { stdout: RUN },
-  probes: string[][] = [],
-  probe: { exitCode: number; stdout: string } | 'reject' = { exitCode: 0, stdout: MODEL },
+  out: { stdout?: string; stderr?: string; code?: number; record?: Partial<AgentRecord> } = { stdout: lines(CAPTURED) },
 ) {
-  mock.env(on, {})
-  const records = agentStore(on, { a1: { harness: 'agy', ...out.record } })
+  mock.clock(on)
+  mock.env(on, { HOME: '/home/u' })
   on('agent.list', () => ({ value: [AGENT] }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e, next) => next(e))
   on('session.messages', () => ({ value: [] }))
-  on('process.run', (_, e) => {
-    if (e.argv[0] === 'node')
-      return { value: { exitCode: 0, stdout: '26.12.1\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-    probes.push([...e.argv])
-    if (probe === 'reject') throw new Error('timed out after 15000 ms')
-    return { value: { exitCode: probe.exitCode, stdout: probe.stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-  })
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '24.11.0\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('fs.write', () => ({ value: undefined }))
+  const records = agentStore(on, { a1: { harness: 'agy', mode: 'default', ...out.record } })
   on('process.spawn', async function* (_, e) {
-    spawns.push({ argv: [...e.argv], input: e.input })
+    spawns.push({ argv: [...e.argv], input: e.input, env: e.env })
     if (out.stdout) yield { stream: 'stdout' as const, text: out.stdout }
     if (out.stderr) yield { stream: 'stderr' as const, text: out.stderr }
     return { value: { code: out.code ?? 0, signal: null } }
@@ -83,233 +117,174 @@ function arrange(
   return records
 }
 
-const NEW = ['agy', '--output-format', 'stream-json', '--disable-slash-commands', '--sandbox']
-
-test('an agy agent sends its prompt on stdin and signs with the model agy says the flags select', async ($, on) => {
+test('an agy agent runs `agy acp --sandbox` behind the relay; a prompt starting with / or -- goes as text on stdin', async ($, on) => {
   const spawns: Spawn[] = []
-  const probes: string[][] = []
-  arrange(on, spawns, undefined, probes)
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'say PONG7' })
-  const { result } = await run($)
-  expect(spawns[0]?.argv).toEqual(NEW)
-  expect(spawns[0]?.input).toBe('say PONG7')
-  expect(probes).toEqual([['agy', '--output-format', 'json', '-p=/model']])
-  expect(result.answer).toBe('PONG7\n\n— answered by agy, gemini-3.8-flash-high')
+  arrange(on, spawns)
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: '/model --help @README.md' })
+  await runTurn($)
+  expect(spawns[0]?.argv).toEqual(['node', `${ROOT}/relay/relay.mjs`, '--', 'agy', 'acp', '--sandbox'])
+  expect(spawns[0]?.input).toBe('/model --help @README.md')
+})
+
+test('the answer is signed with the session model; edits, commands and thinking show as agy reported them', async ($, on) => {
+  const spawns: Spawn[] = []
+  arrange(on, spawns)
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  const { chunks, result, calls } = await runTurn($)
+  expect(result.answer).toBe('two\n\n— answered by agy, gemini-3.8-flash')
+  const inputs = chunks.flatMap((c) => (c.kind === 'input' ? [JSON.parse(c.json) as unknown] : []))
+  expect(inputs).toEqual([
+    { kind: 'edit', title: 'File a.txt', path: '/w/a.txt' },
+    { kind: 'execute', title: 'cat a.txt' },
+  ])
+  expect(JSON.stringify(calls[0])).toContain('- one')
+  expect(JSON.stringify(calls[0])).toContain('+ two')
+  expect(JSON.stringify(calls[1])).toContain('Command output:\\ntwo')
+  expect(chunks.some((c) => c.kind === 'thinking' && c.text.includes('Inspecting'))).toBe(true)
+})
+
+test("usage is the prompt's own count: agy reports no context, and its output includes the thinking", async ($, on) => {
+  const spawns: Spawn[] = []
+  arrange(on, spawns)
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  const { result } = await runTurn($)
   expect(result.usage).toEqual({
-    model: 'gemini-3.8-flash-high',
-    input_tokens: 7849,
-    output_tokens: 293,
+    model: 'gemini-3.8-flash',
+    input_tokens: 38229,
+    output_tokens: 396,
     cache_read_input_tokens: 0,
     cache_creation_input_tokens: 0,
   })
 })
 
-test('a prompt that starts with /, @ or -- reaches agy as text on stdin', async ($, on) => {
+test('with no message ids, text before a tool and text after it are two messages: only the last is the answer', () => {
+  const read = relayEvents()
+  const norms = [
+    { relay: 'steered' },
+    text('agent_message_chunk', 'Checking the file now.'),
+    update({ toolCallId: 'c1', title: 'cat seed', kind: 'execute', status: 'in_progress', sessionUpdate: 'tool_call' }),
+    text('agent_message_chunk', 'zebra-41'),
+  ].flatMap((e) => read(JSON.stringify(e)))
+  expect(norms.filter((n) => n.k === 'message')).toHaveLength(2)
+})
+
+test('a command agy sent to the background and ended its turn without is said with the answer', async ($, on) => {
+  const spawns: Spawn[] = []
+  arrange(on, spawns, { stdout: lines(BACKGROUND) })
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  const { result } = await runTurn($)
+  expect(result.answer).toContain('`sleep 63` in the background. Waiting for it to finish.')
+  expect(result.answer).toContain('agy sent `sleep 63` to the background and ended its turn before it finished')
+  expect(result.answer).toContain('— answered by agy, gemini-3.8-flash')
+})
+
+// Captured the same way, trimmed: a steer sent while `sleep 8` ran. agy ends the first prompt at once,
+// then finishes the command and takes the steer under the second prompt.
+const STEERED = [
+  { relay: 'session', sessionId: SID, cwd: '/w' },
+  { relay: 'steered' },
+  update({ toolCallId: 'call_5761160114661650974', title: 'sleep 8', kind: 'execute', status: 'in_progress', sessionUpdate: 'tool_call' }),
+  { relay: 'prompt_done', stopReason: 'end_turn', usage: { inputTokens: 9151, outputTokens: 39, totalTokens: 9190 } },
+  update({
+    toolCallId: 'call_5761160114661650974',
+    title: 'sleep 8',
+    kind: 'execute',
+    status: 'completed',
+    sessionUpdate: 'tool_call_update',
+  }),
+  text('agent_message_chunk', 'STEERED\nDONE'),
+  { relay: 'steered' },
+  { relay: 'prompt_done', stopReason: 'end_turn', usage: { inputTokens: 18859, outputTokens: 43, totalTokens: 18902 } },
+  { relay: 'done', stopReason: 'end_turn' },
+]
+
+test('a command still running when a steer ends the first prompt raises no background notice', () => {
+  const read = agy.events()
+  expect(STEERED.flatMap((e) => read(JSON.stringify(e))).some((n) => n.k === 'notice')).toBe(false)
+})
+
+test("model and thinking lines become the relay's model and agy's thought_level", async ($, on) => {
   const spawns: Spawn[] = []
   arrange(on, spawns)
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: '/model --help @README.md' })
-  await run($)
-  expect(spawns[0]?.argv).toEqual(NEW)
-  expect(spawns[0]?.input).toBe('/model --help @README.md')
-})
-
-test('model and thinking lines become --model and --effort, for the run and for the model probe', async ($, on) => {
-  const spawns: Spawn[] = []
-  const probes: string[][] = []
-  arrange(on, spawns, undefined, probes)
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'model: gemini-3.8-flash\nthinking: low\ngo' })
-  await run($)
-  expect(spawns[0]?.argv).toEqual([...NEW, '--model', 'gemini-3.8-flash', '--effort', 'low'])
-  expect(probes[0]).toEqual(['agy', '--output-format', 'json', '--model', 'gemini-3.8-flash', '--effort', 'low', '-p=/model'])
+  await runTurn($)
+  expect(spawns[0]?.env?.RELAY_MODEL).toBe('gemini-3.8-flash')
+  expect(JSON.parse(spawns[0]?.env?.RELAY_CONFIG ?? '{}')).toEqual({ thought_level: 'low' })
 })
 
-test('when the probe fails, a run with no model line says the model was not reported', async ($, on) => {
+test("a thinking level agy's ACP lacks is refused", async ($, on) => {
   const spawns: Spawn[] = []
-  arrange(on, spawns, undefined, [], { exitCode: 1, stdout: '' })
+  arrange(on, spawns)
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'thinking: max\ngo' })
+  const { result } = await runTurn($)
+  expect(spawns).toHaveLength(0)
+  expect(result.answer).toContain('thinking must be one of low, medium, high')
+})
+
+test("agy's own questions reach the person, and a message to it running steers it with a second prompt", async ($, on) => {
+  const spawns: Spawn[] = []
+  arrange(on, spawns)
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
-  const { result } = await run($)
-  expect(result.answer).toBe('PONG7\n\n— answered by agy, model not reported')
-  expect(result.usage).toBeNull()
+  await runTurn($)
+  expect(spawns[0]?.env?.RELAY_POLICY).toBe('ask')
+  expect(spawns[0]?.env?.RELAY_INBOX).toBe('/home/u/.claude/via/inbox/agy-a1.jsonl')
+  expect(spawns[0]?.env?.RELAY_STEER).toBe('prompt')
+})
+
+test('bypass mode approves what agy asks, and dontAsk denies it', async ($, on) => {
+  const spawns: Spawn[] = []
+  arrange(on, spawns, { stdout: lines(CAPTURED), record: { mode: 'bypassPermissions' } })
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  await runTurn($)
+  expect(spawns[0]?.env?.RELAY_POLICY).toBe('allow')
+  expect(spawns[0]?.env?.RELAY_AGENT_MODE).toBeUndefined()
+})
+
+test('a follow-up loads the saved session, which agy must replay to count as found', async ($, on) => {
+  const spawns: Spawn[] = []
+  const records = arrange(on, spawns, { stdout: lines(CAPTURED), record: { session: SID } })
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go on' })
+  await runTurn($)
+  expect(spawns[0]?.env).toMatchObject({ RELAY_SESSION: SID, RELAY_LOAD_REPLAYS: '1' })
+  expect(records.record('a1')?.session).toBe(SID)
+})
+
+test('a new run asks for no replay', async ($, on) => {
+  const spawns: Spawn[] = []
+  arrange(on, spawns)
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  await runTurn($)
+  expect(spawns[0]?.env?.RELAY_LOAD_REPLAYS).toBeUndefined()
+})
+
+test('a lost session fails in plain words and is forgotten, rather than answering from a fresh one', async ($, on) => {
+  const spawns: Spawn[] = []
+  const records = arrange(on, spawns, {
+    stdout: lines([{ relay: 'session_lost', message: 'the agent replayed no history for it' }]),
+    stderr: 'acp relay: session lost: the agent replayed no history for it\n',
+    code: 1,
+    record: { session: '00000000-0000-0000-0000-000000000000' },
+  })
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  const { result } = await runTurn($)
+  expect(result.answer).toContain("agy could not find this agent's earlier session, so this message did not run")
+  expect(records.record('a1')?.session).toBe('')
 })
 
 test('a tools line is refused: agy has no read-only mode', async ($, on) => {
   const spawns: Spawn[] = []
   arrange(on, spawns)
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'tools: read\nlook around' })
-  const { result } = await run($)
+  const { result } = await runTurn($)
   expect(spawns).toHaveLength(0)
   expect(result.answer).toContain('agy cannot enforce read-only tools, so a tools line is refused.')
 })
 
-test('a thinking level agy lacks is refused', async ($, on) => {
-  const spawns: Spawn[] = []
-  arrange(on, spawns)
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'thinking: off\ngo' })
-  const { result } = await run($)
-  expect(spawns).toHaveLength(0)
-  expect(result.answer).toContain('thinking must be one of low, medium, high, xhigh, max')
-})
-
-test('a tool step shows once, only the last message is the answer, and usage keeps cached reads apart', async ($, on) => {
-  const spawns: Spawn[] = []
-  arrange(on, spawns, { stdout: TOOLS })
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'what is in seed?' })
-  const { chunks, result } = await run($)
-  expect(chunks.filter((c) => c.kind === 'text' && c.text.includes('▸ read_file')).length).toBe(1)
-  expect(result.answer).toBe('seed\n\n— answered by agy, gemini-3.8-flash-high')
-  // The last step, not both steps summed.
-  expect(result.usage).toEqual({
-    model: 'gemini-3.8-flash-high',
-    input_tokens: 3464,
-    output_tokens: 868,
-    cache_read_input_tokens: 17582,
-    cache_creation_input_tokens: 0,
-  })
-})
-
-test('the conversation id is saved, and a follow-up resumes it with --conversation', async ($, on) => {
-  const spawns: Spawn[] = []
-  const records = arrange(on, spawns)
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'say PONG7' })
-  await run($)
-  expect(records.record('a1')?.session).toBe(RUN_ID)
-  await $.turn.start({ turnId: 't2', agentId: 'a1', text: 'and again' })
-  await run($, { ...STEP, turnId: 't2', messageCount: 2 })
-  expect(spawns[1]?.argv).toEqual([...NEW, '--conversation', RUN_ID])
-})
-
-test('a resumed conversation that comes back with the same id carries no notice', async ($, on) => {
-  const spawns: Spawn[] = []
-  arrange(on, spawns, { stdout: RESUMED, record: { session: RESUMED_ID } })
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'what did you say?' })
-  const { result } = await run($)
-  expect(spawns[0]?.argv.slice(-2)).toEqual(['--conversation', RESUMED_ID])
-  expect(result.answer).toBe('zebra-41\n\n— answered by agy, gemini-3.8-flash-high')
-})
-
-test('a lost conversation is said with the answer, since agy silently starts a new one', async ($, on) => {
-  const spawns: Spawn[] = []
-  const records = arrange(on, spawns, { stdout: RUN, stderr: 'warning: conversation "gone" not found\n', record: { session: 'gone' } })
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'continue' })
-  const { result } = await run($)
-  expect(result.answer).toBe(
-    "PONG7\n\nagy could not find this agent's earlier conversation, so this answer comes from a new one without that context.\n\n— answered by agy, gemini-3.8-flash-high",
-  )
-  expect(records.record('a1')?.session).toBe(RUN_ID)
-})
-
-test('a result other than SUCCESS is a failure in agy words, unsigned', async ($, on) => {
-  const spawns: Spawn[] = []
-  const failed = [
-    { event: 'init', conversation_id: RUN_ID },
-    { event: 'result', result: { status: 'ERROR', error: 'quota exhausted' } },
-  ]
-  arrange(on, spawns, { stdout: `${failed.map((e) => JSON.stringify(e)).join('\n')}\n`, code: 3 })
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
-  const { result } = await run($)
-  expect(result.answer).toBe("agy's model call failed: quota exhausted")
-  expect(result.usage).toBeNull()
-})
-
-test('text before a tool and text after it are two messages: only the last is the answer', async ($, on) => {
-  const spawns: Spawn[] = []
-  arrange(on, spawns, { stdout: TWO })
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'check seed2' })
-  const { chunks, result } = await run($)
-  expect(chunks.some((c) => c.kind === 'text' && c.text.includes('Checking the file now'))).toBe(true)
-  expect(result.answer).toBe('zebra-41\n\n— answered by agy, gemini-3.8-flash-high')
-})
-
-test('a probe that rejects, as on its timeout, leaves the run to answer and the model unreported', async ($, on) => {
-  const spawns: Spawn[] = []
-  arrange(on, spawns, undefined, [], 'reject')
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
-  const { result } = await run($)
-  expect(result.answer).toBe('PONG7\n\n— answered by agy, model not reported')
-})
-
-test('a failed probe signs the model line as requested', async ($, on) => {
-  arrange(on, [], undefined, [], { exitCode: 1, stdout: '' })
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'model: gemini-3.8-flash\ngo' })
-  expect((await run($)).result.answer).toBe('PONG7\n\n— answered by agy, gemini-3.8-flash (requested)')
-})
-
-test('a working probe signs the model it names, not the model line', async ($, on) => {
-  arrange(on, [])
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'model: gemini-3.8-flash\ngo' })
-  expect((await run($)).result.answer).toBe('PONG7\n\n— answered by agy, gemini-3.8-flash-high')
-})
-
-test('a probe answer without a model id is not a model', async ($, on) => {
-  arrange(on, [], undefined, [], { exitCode: 0, stdout: JSON.stringify({ status: 'SUCCESS', command: { name: 'model' } }) })
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
-  expect((await run($)).result.answer).toBe('PONG7\n\n— answered by agy, model not reported')
-})
-
-test('a model named in the stream is believed over the probe', async ($, on) => {
-  // Hypothetical: 1.4.7 leaves init.model empty; this pins the order should a version fill it.
-  const named = RUN.replace('"init":{', '"init":{"model":"gemini-from-stream",')
-  arrange(on, [], { stdout: named })
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
-  expect((await run($)).result.answer).toBe('PONG7\n\n— answered by agy, gemini-from-stream')
-})
-
-test('a resumed run whose init carries no id raises no lost-conversation notice', async ($, on) => {
-  const noId = RESUMED.split('\n')
-    .map((l) => (l.startsWith('{"event":"init"') ? '{"event":"init","init":{}}' : l))
-    .join('\n')
-  arrange(on, [], { stdout: noId, record: { session: RESUMED_ID } })
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'what did you say?' })
-  expect((await run($)).result.answer).toBe('zebra-41\n\n— answered by agy, gemini-3.8-flash-high')
-})
-
-test("usage is the last step's, not agy's own result total", async ($, on) => {
-  const total = JSON.parse(TWO.trim().split('\n').at(-1) ?? '{}').result.usage
-  arrange(on, [], { stdout: TWO })
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'check seed2' })
-  const { result } = await run($)
-  expect(result.usage).toEqual({
-    model: 'gemini-3.8-flash-high',
-    input_tokens: 9381,
-    output_tokens: 70,
-    cache_read_input_tokens: 0,
-    cache_creation_input_tokens: 0,
-  })
-  expect(total.input_tokens).toBe(17249)
-})
-
-test('the model probe runs alongside the run, not before it', async ($, on) => {
-  let spawned!: () => void
-  const started = new Promise<void>((resolve) => {
-    spawned = resolve
-  })
-  mock.env(on, {})
-  agentStore(on, { a1: { harness: 'agy' } })
-  on('agent.list', () => ({ value: [AGENT] }))
-  on('turn.start', (_, e) => ({ turnId: e.turnId }))
-  on('turn.complete', (_, e, next) => next(e))
-  on('session.messages', () => ({ value: [] }))
-  // Answers only once the run has started: awaiting the probe first would never finish.
-  on('process.run', async (_, e) => {
-    if (e.argv[0] === 'node')
-      return { value: { exitCode: 0, stdout: '26.12.1\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-    await started
-    return { value: { exitCode: 0, stdout: MODEL, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-  })
-  on('process.spawn', async function* () {
-    spawned()
-    yield { stream: 'stdout' as const, text: RUN }
-    return { value: { code: 0, signal: null } }
-  })
-  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
-  expect((await run($)).result.answer).toBe('PONG7\n\n— answered by agy, gemini-3.8-flash-high')
-})
-
 test('plan mode refuses agy, which has no read-only mode via can enforce', async ($, on) => {
   const spawns: Spawn[] = []
-  arrange(on, spawns, { stdout: RUN, record: { mode: 'plan' } })
+  arrange(on, spawns, { stdout: lines(CAPTURED), record: { mode: 'plan' } })
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'look around' })
-  const { result } = await run($)
+  const { result } = await runTurn($)
   expect(spawns).toHaveLength(0)
   expect(result.answer).toContain('agy cannot run in plan mode')
 })

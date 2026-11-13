@@ -9,13 +9,15 @@
 //   RELAY_STEER       how a string reaches a running prompt: steering (codex-acp's _session/steering), prompt
 //                     (a second session/prompt, which opencode takes at its next step); unset: queued
 //   RELAY_SESSION     a session to resume (session/load)
+//   RELAY_LOAD_REPLAYS 1: the agent replays a loaded session's history, so a load that replays no user
+//                     message found no session (agy loads an unknown id as a new, empty one)
 //   RELAY_MODEL       the agent's `model` config option
 //   RELAY_AGENT_MODE  the agent's own mode (session/set_mode), such as codex's workspace-write
 //   RELAY_CONFIG      a JSON object of other config options to set, such as {"reasoning_effort": "high"}
 //   RELAY_POLICY      how permission requests are answered: allow, deny (the default) or ask (every request
 //                     goes to the plugin)
 // Prints each ACP session update as received, and {"relay": ...} lines for its own events.
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { Readable, Writable } from 'node:stream'
 import * as acp from '@agentclientprotocol/sdk/unstable'
@@ -28,14 +30,36 @@ let agentPid: number | undefined
 // busy: a prompt of the main loop is running. spokeIdle: the agent wrote an answer while none was.
 let busy = false
 let spokeIdle = false
+// User messages the agent has replayed or echoed: before the first prompt, a loaded session's history.
+let heard = 0
+const kill = (target: number) => {
+  try {
+    process.kill(target, 'SIGTERM')
+    return true
+  } catch {
+    return false // Already gone, or not a group leader.
+  }
+}
+// The agent's process group, and the group of each process it started in one of its own: agy and
+// opencode run commands that way, and a command agy sent to the background outlived agy's group and
+// the session's close and cancel (agy 1.5.7, tested live).
+const end = () => {
+  if (agentPid === undefined) return
+  let children: string[] = []
+  try {
+    children = execFileSync('pgrep', ['-P', String(agentPid)], { encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean)
+  } catch {
+    // None, or no pgrep.
+  }
+  for (const child of children) kill(-Number(child)) || kill(Number(child))
+  kill(-agentPid)
+}
 const fail = (message: string): never => {
   out({ relay: 'error', message })
   process.stderr.write(`acp relay: ${message}\n`)
-  try {
-    if (agentPid !== undefined) process.kill(-agentPid, 'SIGTERM')
-  } catch {
-    // Already gone.
-  }
+  end()
   process.exit(1)
 }
 // An agent's JSON-RPC error can say only "Internal error" and carry the cause in its data (codex-acp
@@ -141,11 +165,7 @@ agent.on('error', (error) => fail(`could not start ${bin}: ${error.message}`))
 let cancel = async () => {}
 const stop = async (code: number) => {
   await Promise.race([cancel(), new Promise((resolve) => setTimeout(resolve, 2000))])
-  try {
-    if (agent.pid !== undefined) process.kill(-agent.pid, 'SIGTERM')
-  } catch {
-    // Already gone.
-  }
+  end()
   process.exit(code)
 }
 // The engine stops a run with SIGTERM: the agent must not outlive the relay.
@@ -198,6 +218,7 @@ const result = await acp
   })
   .onNotification(acp.methods.client.session.update, (ctx) => {
     if (!busy && ctx.params.update.sessionUpdate === 'agent_message_chunk') spokeIdle = true
+    if (ctx.params.update.sessionUpdate === 'user_message_chunk') heard += 1
     out(ctx.params as unknown as Record<string, unknown>)
   })
   .connectWith(stream, async (ctx) => {
@@ -206,17 +227,22 @@ const result = await acp
       clientCapabilities: CAPABILITIES,
     })
     const resume = process.env.RELAY_SESSION
+    const lost = (message: string): never => {
+      out({ relay: 'session_lost', message })
+      process.stderr.write(`acp relay: session lost: ${message}\n`)
+      return process.exit(1)
+    }
     const opened = resume
       ? await ctx.request(acp.methods.agent.session.load, { sessionId: resume, cwd, mcpServers: [] }).catch((error: unknown) => {
           const message = reason(error)
           const data = JSON.stringify((error as { data?: unknown })?.data ?? '')
           // Only a session the agent no longer has is lost; anything else (auth, a crash) is a failure.
           if (!/not found/i.test(`${message} ${data}`)) return fail(`could not resume the session: ${message}`)
-          out({ relay: 'session_lost', message })
-          process.stderr.write(`acp relay: session lost: ${message}\n`)
-          return process.exit(1)
+          return lost(message)
         })
       : await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] })
+    // The history replays before the load returns (agy, tested live).
+    if (resume && process.env.RELAY_LOAD_REPLAYS === '1' && heard === 0) lost('the agent replayed no history for it')
     const sessionId = resume ?? (opened as acp.NewSessionResponse).sessionId
     // cwd: so a title's paths can be shown relative to it.
     out({ relay: 'session', sessionId, cwd })

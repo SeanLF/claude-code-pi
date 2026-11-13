@@ -34,8 +34,6 @@ export type RunInput = {
   mode: Mode
   installed?: string
   models?: readonly string[] // the harness's offered models, for a refused model's nearest
-  // Awaited only to sign, so a probe never delays the run or outlives an interrupted one.
-  probe(session: string | undefined): Promise<string | undefined>
   save(session: string): Promise<void>
 }
 
@@ -161,7 +159,7 @@ export async function* run(
   w: World,
   adapter: Adapter,
   $: Pick<EngineInterface, 'process' | 'clock' | 'plugin' | 'fs' | 'env' | 'ui'>,
-  { agentId, choice, prompt, signal, inbox, session, block = 0, guard, mode, installed, models = [], probe, save }: RunInput,
+  { agentId, choice, prompt, signal, inbox, session, block = 0, guard, mode, installed, models = [], save }: RunInput,
 ): AsyncGenerator<TurnStepChunk | Mark, RunResult> {
   const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE'))
   const row = async (text: string) => {
@@ -315,7 +313,6 @@ export async function* run(
       next: [...undeliveredSteers(inbox, s.steered), inbox.interrupt].join('\n\n'),
     }
   }
-  if (!s.answeredBy && !failure) s.answeredBy = (await probe(s.latest)) ?? ''
   const done = finish({
     adapter,
     choice,

@@ -90,6 +90,7 @@ function ask(e: Record<string, unknown>): Ask | undefined {
 // own calls, messages and context.
 function sessionEvents(cwdOf: () => string) {
   let context = 0
+  let counted = false
   let speaking: unknown
   const shown = new Set<string>()
   const ended = new Set<string>()
@@ -129,6 +130,8 @@ function sessionEvents(cwdOf: () => string) {
       case 'tool_call':
       case 'tool_call_update': {
         if (typeof u.toolCallId !== 'string') return []
+        // Without message ids (agy), a tool call between two texts is what makes them two messages.
+        if (speaking === 'unnamed') speaking = undefined
         const id = u.toolCallId
         if (typeof u.title === 'string') titles.set(id, u.title)
         if (typeof u.kind === 'string') kinds.set(id, u.kind)
@@ -210,6 +213,7 @@ function sessionEvents(cwdOf: () => string) {
         // The agent's own count of its context, which is what Claude Code reads usage as.
         if (typeof u.used !== 'number') return []
         context = u.used
+        counted = true
         return [{ k: 'usage', usage: { input: u.used, cacheRead: 0, cacheWrite: 0, output: 0 } }]
       default:
         return []
@@ -218,6 +222,7 @@ function sessionEvents(cwdOf: () => string) {
   return {
     read,
     context: () => context,
+    counted: () => counted,
     // A steer starts a new prompt: its first message is a new one, even with the same id.
     steered: () => {
       speaking = undefined
@@ -266,8 +271,22 @@ export function relayEvents(): (line: string) => Norm[] {
       case 'prompt_done': {
         // The prompt's own count of what it wrote, beside the context the last usage_update reported.
         const usage = isRecord(e.usage) ? e.usage : {}
-        const output = typeof usage.outputTokens === 'number' ? usage.outputTokens : 0
-        return [{ k: 'usage', usage: { input: own.context(), cacheRead: 0, cacheWrite: 0, output } }]
+        const n = (key: string) => (typeof usage[key] === 'number' ? usage[key] : 0)
+        if (own.counted()) return [{ k: 'usage', usage: { input: own.context(), cacheRead: 0, cacheWrite: 0, output: n('outputTokens') } }]
+        // An agent that reports no context (agy) has only the prompt's count, every model call of it summed,
+        // so a prompt that used tools reads larger than its context. Cached tokens are apart from input, as
+        // opencode's add up to its total.
+        return [
+          {
+            k: 'usage',
+            usage: {
+              input: n('inputTokens'),
+              cacheRead: n('cachedReadTokens'),
+              cacheWrite: n('cachedWriteTokens'),
+              output: n('outputTokens'),
+            },
+          },
+        ]
       }
       case undefined:
         break

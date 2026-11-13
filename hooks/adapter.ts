@@ -52,14 +52,6 @@ export type Adapter = {
   }): ProcessSpawnRequest
   // A parser per run: message boundaries can depend on earlier lines, and session is what the run asked to resume.
   events(session: string | undefined): (line: string) => Norm[]
-  // Asks the harness at no cost which model answered: alongside the run from its flags, or after
-  // it from the session it ran in (`after`), when only the session can say.
-  readonly probe?: {
-    readonly after?: boolean
-    argv(choice: Choice, session?: string): string[]
-    env?(choice: Choice): Record<string, string> | undefined
-    model(stdout: string): string | undefined
-  }
   model(choice: Choice): string | undefined // a real model name when the stream names none, never a pattern
   // A known failure in plain words; sessionLost forgets the saved session so the next message starts fresh.
   failure?(exit: ProcessSpawnResult, stderr: string): { message: string; sessionLost?: boolean } | undefined

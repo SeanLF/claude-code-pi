@@ -68,15 +68,6 @@ async function foundAbove(
   return 'unchecked'
 }
 
-async function probeModel($: Engine, adapter: Adapter, choice: Choice, session?: string): Promise<string | undefined> {
-  if (!adapter.probe) return undefined
-  const env = adapter.probe.env?.(choice)
-  const asked = await $.process
-    .run(adapter.probe.argv(choice, session), { timeoutMs: 15_000, ...(env ? { env } : {}) })
-    .catch(() => undefined)
-  return asked?.exitCode === 0 ? adapter.probe.model(asked.stdout) : undefined
-}
-
 // A guard that cannot prove a read-only run safe refuses it; the string says why.
 async function readOnlyGuard($: Engine, adapter: Adapter): Promise<Readonly<Record<string, string>> | string | undefined> {
   const guard = adapter.readOnlyGuard
@@ -246,8 +237,6 @@ async function* begin(
   }
   const ready = await relayReady(w, $, adapter, w.latest.has(adapter.name))
   if (typeof ready === 'string') return yield* respond(e, textChunks(ready), ready)
-  const early = adapter.probe && !adapter.probe.after ? probeModel($, adapter, chosen) : undefined
-  const probe = (latest: string | undefined) => early ?? (latest ? probeModel($, adapter, chosen, latest) : Promise.resolve(undefined))
   // Only this run's answer may answer a later step that runs nothing: an aborted run leaves none.
   await updateRecord(w, $, agentId, { report: '', handedBack: false })
   const abort = new AbortController()
@@ -269,7 +258,6 @@ async function* begin(
       mode,
       installed: ready.installed,
       guard,
-      probe,
       signal: abort.signal,
     }),
   }
@@ -287,12 +275,11 @@ type Drive = {
   mode: Mode
   installed: string | undefined
   guard: Readonly<Record<string, string>> | undefined
-  probe: (latest: string | undefined) => Promise<string | undefined>
   signal: AbortSignal
 }
 
 async function* drive(w: World, $: EngineInterface, d: Drive): AsyncGenerator<TurnStepChunk | Mark, TurnStepResult> {
-  const { adapter, e, turn, agentId, record, chosen, mode, installed, guard, probe, signal } = d
+  const { adapter, e, turn, agentId, record, chosen, mode, installed, guard, signal } = d
   let prompt = d.prompt
   let block = 0
   let result: RunResult
@@ -313,7 +300,6 @@ async function* drive(w: World, $: EngineInterface, d: Drive): AsyncGenerator<Tu
       models,
       block,
       guard,
-      probe,
       // Saved the moment the harness issues it: a reload mid-run must not lose the session.
       save: async (id) => {
         if (id !== session) await updateRecord(w, $, agentId, { session: id })
