@@ -2,7 +2,6 @@ import { expect, mock, type TestBody, test } from 'claude-code/testing'
 import { relayEvents } from '../../hooks/acp/events'
 import { agy } from '../../hooks/adapters/agy'
 import type { AgentRecord } from '../../hooks/record'
-import { steerDelivered } from '../../hooks/steer'
 import { agentStore, ROOT, runTurn } from '../helpers'
 
 type TestOn = Parameters<TestBody>[1]
@@ -71,7 +70,7 @@ const CAPTURED = [
   { relay: 'done', stopReason: 'end_turn' },
 ]
 // Captured the same way: `sleep 63` outlasted the 10 s agy chose to wait, went to the background, and
-// agy ended its turn. The call never ends, and the sleep outlived agy.
+// agy ended its turn. The call never ends here: agy holds its end for the next prompt.
 const BACKGROUND = [
   { relay: 'session', sessionId: SID, cwd: '/w' },
   { relay: 'model', name: 'gemini-3.8-flash' },
@@ -169,24 +168,39 @@ test('with no message ids, text before a tool and text after it are two messages
   expect(norms.filter((n) => n.k === 'message')).toHaveLength(2)
 })
 
-test('a command agy left running in the background when its turn ended is said with the answer', async ($, on) => {
+test('a command agy sent to the background and ended its turn without is said with the answer', async ($, on) => {
   const spawns: Spawn[] = []
   arrange(on, spawns, { stdout: lines(BACKGROUND) })
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
   const { result } = await runTurn($)
   expect(result.answer).toContain('`sleep 63` in the background. Waiting for it to finish.')
-  expect(result.answer).toContain('agy ended its turn with `sleep 63` still running in the background')
+  expect(result.answer).toContain('agy sent `sleep 63` to the background and ended its turn before it finished')
   expect(result.answer).toContain('— answered by agy, gemini-3.8-flash')
 })
 
-test('an interrupted command raises no background notice', () => {
+// Captured the same way, trimmed: a steer sent while `sleep 8` ran. agy ends the first prompt at once,
+// then finishes the command and takes the steer under the second prompt.
+const STEERED = [
+  { relay: 'session', sessionId: SID, cwd: '/w' },
+  { relay: 'steered' },
+  update({ toolCallId: 'call_5761160114661650974', title: 'sleep 8', kind: 'execute', status: 'in_progress', sessionUpdate: 'tool_call' }),
+  { relay: 'prompt_done', stopReason: 'end_turn', usage: { inputTokens: 9151, outputTokens: 39, totalTokens: 9190 } },
+  update({
+    toolCallId: 'call_5761160114661650974',
+    title: 'sleep 8',
+    kind: 'execute',
+    status: 'completed',
+    sessionUpdate: 'tool_call_update',
+  }),
+  text('agent_message_chunk', 'STEERED\nDONE'),
+  { relay: 'steered' },
+  { relay: 'prompt_done', stopReason: 'end_turn', usage: { inputTokens: 18859, outputTokens: 43, totalTokens: 18902 } },
+  { relay: 'done', stopReason: 'end_turn' },
+]
+
+test('a command still running when a steer ends the first prompt raises no background notice', () => {
   const read = agy.events()
-  const said = [
-    ...BACKGROUND.slice(0, 4),
-    { relay: 'prompt_done', stopReason: 'cancelled', usage: null },
-    { relay: 'interrupted' },
-  ].flatMap((e) => read(JSON.stringify(e)))
-  expect(said.some((n) => n.k === 'notice')).toBe(false)
+  expect(STEERED.flatMap((e) => read(JSON.stringify(e))).some((n) => n.k === 'notice')).toBe(false)
 })
 
 test("model and thinking lines become the relay's model and agy's thought_level", async ($, on) => {
@@ -207,19 +221,14 @@ test("a thinking level agy's ACP lacks is refused", async ($, on) => {
   expect(result.answer).toContain('thinking must be one of low, medium, high')
 })
 
-test("agy's own questions reach the person; a message to it running waits for its turn to end", async ($, on) => {
+test("agy's own questions reach the person, and a message to it running steers it with a second prompt", async ($, on) => {
   const spawns: Spawn[] = []
   arrange(on, spawns)
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
   await runTurn($)
   expect(spawns[0]?.env?.RELAY_POLICY).toBe('ask')
   expect(spawns[0]?.env?.RELAY_INBOX).toBe('/home/u/.claude/via/inbox/agy-a1.jsonl')
-  // A second session/prompt ends agy's running turn instead of steering it (tested live).
-  expect(spawns[0]?.env?.RELAY_STEER).toBeUndefined()
-})
-
-test('a SendMessage to a running agy agent is said to wait for its turn, not to reach its next step', () => {
-  expect(steerDelivered({ name: 'agy', queued: true })).toBe('Queued for the running agy agent; agy takes it when its current turn ends.')
+  expect(spawns[0]?.env?.RELAY_STEER).toBe('prompt')
 })
 
 test('bypass mode approves what agy asks, and dontAsk denies it', async ($, on) => {

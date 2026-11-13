@@ -11,11 +11,10 @@ export type Policy = 'allow' | 'deny' | 'ask'
 const relayArgv = (root: string, agent: readonly string[]) => ['node', `${root}/relay/relay.mjs`, '--', ...agent]
 
 // What the relay needs for one run.
-// steer: how the agent takes a message mid-run, tested live on each (relay/checks/check.sh); none: the
-// relay queues it for when the running prompt ends.
+// steer: how the agent takes a message mid-run, tested live on each (relay/checks/check.sh).
 function relayEnv(c: {
   inbox?: string
-  steer?: 'steering' | 'prompt'
+  steer: 'steering' | 'prompt'
   session?: string
   loadReplays?: boolean
   model?: string
@@ -25,8 +24,7 @@ function relayEnv(c: {
 }) {
   return {
     RELAY_POLICY: c.policy,
-    ...(c.inbox ? { RELAY_INBOX: c.inbox } : {}),
-    ...(c.inbox && c.steer ? { RELAY_STEER: c.steer } : {}),
+    ...(c.inbox ? { RELAY_INBOX: c.inbox, RELAY_STEER: c.steer } : {}),
     ...(c.session ? { RELAY_SESSION: c.session } : {}),
     ...(c.session && c.loadReplays ? { RELAY_LOAD_REPLAYS: '1' } : {}),
     ...(c.model ? { RELAY_MODEL: c.model } : {}),
@@ -43,7 +41,7 @@ export type AcpSpec = {
   readonly name: string
   readonly command: readonly string[] // the ACP agent, as the relay starts it
   readonly env?: Readonly<Record<string, string>>
-  readonly steer?: 'steering' | 'prompt' // how a message reaches a running prompt: the relay's RELAY_STEER
+  readonly steer: 'steering' | 'prompt' // how a message reaches a running prompt: the relay's RELAY_STEER
   // Its session/load replays the history, so a load that replays nothing found no session.
   readonly loadReplays?: boolean
   // readOnly: plan mode or a read-only run; the rest by Claude Code's permission mode.

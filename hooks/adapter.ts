@@ -19,9 +19,7 @@ export type Adapter = {
   readonly readOnly: 'enforced' | 'none'
   readonly tools?: readonly string[] // the only values a tools line may take; absent: a free tool list
   readonly thinking: readonly string[]
-  // true: a message reaches a running agent at its next step. queued: it runs when the agent's current
-  // prompt ends, and `interrupt:` still stops the current step.
-  readonly steer: boolean | 'queued'
+  readonly steer: boolean
   readonly defaultModel: boolean // takes the plugin's defaultModel setting
   readonly models?: string
   // A folder that voids read-only when found in the working folder or any folder above it, unless

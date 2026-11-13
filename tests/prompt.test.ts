@@ -248,14 +248,11 @@ test('only a harness that steers tells Claude about interrupt:', () => {
   expect(descriptionOf(STUB, [])).not.toContain('interrupt')
 })
 
-test('a harness whose messages wait for its turn says so, not that it steers, and still takes interrupt:', () => {
+test("agy's help names its thinking levels and says it steers mid-run", () => {
   const help = helpOf(agy, [])
-  expect(help).toContain('waits for its current turn to end')
-  expect(help).not.toContain('at its next step')
-  expect(help).toContain('interrupt:')
   expect(help).toContain('low, medium, high')
-  expect(descriptionOf(agy, [])).not.toContain('steers')
-  expect(descriptionOf(agy, [])).toContain('`interrupt:`')
+  expect(help).toContain('at its next step')
+  expect(descriptionOf(agy, [])).toContain('steers it mid-run')
 })
 
 test('a model line starting with - is refused, so it can never be read as a flag', () => {

@@ -287,7 +287,7 @@ async function* drive(w: World, $: EngineInterface, d: Drive): AsyncGenerator<Tu
   // An interrupted run is followed at once by its message, on the same session.
   for (;;) {
     const session = record.session
-    const inbox = adapter.steer ? await openInbox($, adapter, agentId, w.inboxes) : undefined
+    const inbox = adapter.steer ? await openInbox($, adapter.name, agentId, w.inboxes) : undefined
     result = yield* run(w, adapter, $, {
       agentId,
       choice: chosen,

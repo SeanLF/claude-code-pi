@@ -17,7 +17,7 @@
 //   RELAY_POLICY      how permission requests are answered: allow, deny (the default) or ask (every request
 //                     goes to the plugin)
 // Prints each ACP session update as received, and {"relay": ...} lines for its own events.
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { Readable, Writable } from 'node:stream'
 import * as acp from '@agentclientprotocol/sdk/unstable'
@@ -32,14 +32,34 @@ let busy = false
 let spokeIdle = false
 // User messages the agent has replayed or echoed: before the first prompt, a loaded session's history.
 let heard = 0
+const kill = (target: number) => {
+  try {
+    process.kill(target, 'SIGTERM')
+    return true
+  } catch {
+    return false // Already gone, or not a group leader.
+  }
+}
+// The agent's process group, and the group of each process it started in one of its own: agy and
+// opencode run commands that way, and a command agy sent to the background outlived agy's group and
+// the session's close and cancel (agy 1.5.7, tested live).
+const end = () => {
+  if (agentPid === undefined) return
+  let children: string[] = []
+  try {
+    children = execFileSync('pgrep', ['-P', String(agentPid)], { encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean)
+  } catch {
+    // None, or no pgrep.
+  }
+  for (const child of children) kill(-Number(child)) || kill(Number(child))
+  kill(-agentPid)
+}
 const fail = (message: string): never => {
   out({ relay: 'error', message })
   process.stderr.write(`acp relay: ${message}\n`)
-  try {
-    if (agentPid !== undefined) process.kill(-agentPid, 'SIGTERM')
-  } catch {
-    // Already gone.
-  }
+  end()
   process.exit(1)
 }
 // An agent's JSON-RPC error can say only "Internal error" and carry the cause in its data (codex-acp
@@ -145,11 +165,7 @@ agent.on('error', (error) => fail(`could not start ${bin}: ${error.message}`))
 let cancel = async () => {}
 const stop = async (code: number) => {
   await Promise.race([cancel(), new Promise((resolve) => setTimeout(resolve, 2000))])
-  try {
-    if (agent.pid !== undefined) process.kill(-agent.pid, 'SIGTERM')
-  } catch {
-    // Already gone.
-  }
+  end()
   process.exit(code)
 }
 // The engine stops a run with SIGTERM: the agent must not outlive the relay.

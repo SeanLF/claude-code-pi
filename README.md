@@ -50,7 +50,7 @@ Ask in plain language: "Have codex review src/api". Optional lines at the top of
 | `thinking: <level>` | Reasoning effort; a level the harness or model doesn't have is refused |
 | `via-help` | Lists the harness's options instead of running it |
 
-A message to a running Codex, OpenCode or pi agent reaches it at its next step; one to a running agy agent waits for its turn to end. `interrupt:` first stops the current step. A completed answer ends with the model the harness reports; one only taken from your `model:` line says `(requested)`, and a harness that won't say gets `model not reported`.
+A message to a running Codex, OpenCode, agy or pi agent reaches it at its next step; `interrupt:` first stops the current step. A completed answer ends with the model the harness reports; one only taken from your `model:` line says `(requested)`, and a harness that won't say gets `model not reported`.
 
 ## Permissions
 
@@ -64,7 +64,7 @@ A message to a running Codex, OpenCode or pi agent reaches it at its next step; 
 Each loads its own user config and instructions files (agy reads your global `AGENTS.md`).
 
 - `codex`: an interrupted command can keep running until it finishes.
-- `agy`: commands run in Antigravity's sandbox, away from credentials such as `~/.kube`; its own file edits are not sandboxed. A command that runs longer than agy chose to wait goes to the background: agy ends its turn without its result, and it outlives the run, which the answer then says. `thinking:` takes low, medium or high, for Gemini models only.
+- `agy`: commands run in Antigravity's sandbox, away from credentials such as `~/.kube`; its own file edits are not sandboxed. A command that runs longer than 10 seconds goes to the background and agy ends its turn without its result ([agy#1461](https://github.com/google-antigravity/antigravity-cli/issues/1461)); the answer says so, and `via` stops the command when the run ends. `thinking:` takes low, medium or high, for Gemini models only.
 - `opencode`: a read-only run replaces your own `OPENCODE_CONFIG_CONTENT`.
 - `pi`: any model pi reaches by API key or `/login`. On a ChatGPT login it runs pi's own tools, not Codex's sandbox. `tools:` takes a pi tool list: one of only `read`, `grep`, `find`, `ls` is read-only and skips the project's `.pi` extensions, even in a project you trusted; any other, such as `-bash,read`, can edit and loads them.
 

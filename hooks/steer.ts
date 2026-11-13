@@ -1,38 +1,28 @@
 import type { EngineInterface, MatchedHook } from 'claude-code'
 import { unhidden } from './acp/text'
-import type { Adapter, Ask } from './adapter'
+import type { Ask } from './adapter'
 import type { World } from './world'
 
 // interrupt: what an `interrupt:` message asked for; the harness aborts its step, and the core runs it next.
-// queued: a message waits for the harness's current prompt to end.
-export type Inbox = { name: string; path: string; lines: string[]; interrupt?: string; queued?: boolean }
+export type Inbox = { name: string; path: string; lines: string[]; interrupt?: string }
 
 const INTERRUPT = /^interrupt:[ \t]*/i
 
-export const steerDelivered = (inbox: Pick<Inbox, 'name' | 'queued'>) =>
-  inbox.queued
-    ? `Queued for the running ${inbox.name} agent; ${inbox.name} takes it when its current turn ends.`
-    : `Delivered to the running ${inbox.name} agent; ${inbox.name} reads it at its next step.`
+export const steerDelivered = (name: string) => `Delivered to the running ${name} agent; ${name} reads it at its next step.`
 export const interruptDelivered = (name: string) =>
   `Interrupting the running ${name} agent: it stops its current step, then takes this message.`
 
 export async function openInbox(
   $: Pick<EngineInterface, 'env' | 'fs'>,
-  adapter: Pick<Adapter, 'name' | 'steer'>,
+  name: string,
   agentId: string,
   inboxes: Map<string, Inbox>,
 ): Promise<Inbox | undefined> {
-  const { name } = adapter
   // Not $TMPDIR: on Linux it can be the shared /tmp, where another user could plant the
   // folder and write steers or a symlink (fs.write follows links). No usable home: no steering.
   const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE'))
   if (!home) return undefined
-  const inbox: Inbox = {
-    name,
-    path: `${home}/.claude/via/inbox/${name}-${agentId}.jsonl`,
-    lines: [],
-    ...(adapter.steer === 'queued' ? { queued: true } : {}),
-  }
+  const inbox: Inbox = { name, path: `${home}/.claude/via/inbox/${name}-${agentId}.jsonl`, lines: [] }
   const opened = await $.fs.write(inbox.path, '').then(
     () => true,
     () => false,
@@ -80,7 +70,7 @@ export async function sendMessage(w: World, $: Parameters<SendHook>[0], e: Param
   // An idle-notice subscription is the engine's to keep, so the call goes on to it.
   if (inbox === undefined || message === undefined || e.notify_when_idle) return next(e)
   const interrupted = await steer($, inbox, message)
-  return { result: { success: true, message: interrupted ? interruptDelivered(inbox.name) : steerDelivered(inbox) } }
+  return { result: { success: true, message: interrupted ? interruptDelivered(inbox.name) : steerDelivered(inbox.name) } }
 }
 
 // A message for a running harness, into its inbox: a steer, or with `interrupt:` an interrupt, whose

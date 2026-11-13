@@ -6,7 +6,7 @@ var __export = (target, all) => {
 };
 
 // relay/src/relay.mts
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 
@@ -188,8 +188,8 @@ function nullish(input) {
 }
 function cleanRegex(source) {
   const start = source.startsWith("^") ? 1 : 0;
-  const end = source.endsWith("$") ? source.length - 1 : source.length;
-  return source.slice(start, end);
+  const end2 = source.endsWith("$") ? source.length - 1 : source.length;
+  return source.slice(start, end2);
 }
 function floatSafeRemainder(val, step) {
   const ratio = val / step;
@@ -10260,14 +10260,29 @@ var agentPid;
 var busy = false;
 var spokeIdle = false;
 var heard = 0;
+var kill = (target) => {
+  try {
+    process.kill(target, "SIGTERM");
+    return true;
+  } catch {
+    return false;
+  }
+};
+var end = () => {
+  if (agentPid === void 0) return;
+  let children = [];
+  try {
+    children = execFileSync("pgrep", ["-P", String(agentPid)], { encoding: "utf8" }).split("\n").filter(Boolean);
+  } catch {
+  }
+  for (const child of children) kill(-Number(child)) || kill(Number(child));
+  kill(-agentPid);
+};
 var fail = (message) => {
   out({ relay: "error", message });
   process.stderr.write(`acp relay: ${message}
 `);
-  try {
-    if (agentPid !== void 0) process.kill(-agentPid, "SIGTERM");
-  } catch {
-  }
+  end();
   process.exit(1);
 };
 var reason = (error2) => {
@@ -10342,10 +10357,7 @@ var cancel = async () => {
 };
 var stop = async (code) => {
   await Promise.race([cancel(), new Promise((resolve) => setTimeout(resolve, 2e3))]);
-  try {
-    if (agent.pid !== void 0) process.kill(-agent.pid, "SIGTERM");
-  } catch {
-  }
+  end();
   process.exit(code);
 };
 process.on("SIGTERM", () => void stop(0));
@@ -10488,9 +10500,9 @@ var result = await client({ name: "via" }).onRequest(methods.client.session.requ
     setInterval(() => {
       if (!existsSync(inbox)) return;
       const text = readFileSync(inbox, "utf8");
-      const end = text.lastIndexOf("\n");
-      if (end < offset) return;
-      for (const line of text.slice(offset, end).split("\n")) {
+      const end2 = text.lastIndexOf("\n");
+      if (end2 < offset) return;
+      for (const line of text.slice(offset, end2).split("\n")) {
         if (!line.trim()) continue;
         const value = JSON.parse(line);
         if (typeof value === "string") {
@@ -10512,7 +10524,7 @@ ${text2}`;
           void ctx.notify(methods.agent.session.cancel, { sessionId });
         }
       }
-      offset = end + 1;
+      offset = end2 + 1;
     }, 300).unref();
   while (queue.length > 0 || steering.size > 0) {
     if (queue.length === 0) {
