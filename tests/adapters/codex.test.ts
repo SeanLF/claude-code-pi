@@ -215,6 +215,34 @@ test('only the last message is the answer, signed with the model the session run
   expect(chunks.some((c) => c.kind === 'text' && c.text.includes('▸ interrupted'))).toBe(true)
 })
 
+// No model refuses on demand: the captured run's last prompt is given each stop reason in turn.
+const stoppedWith = (stopReason: string) => CAPTURED.map((e, i) => (i >= CAPTURED.length - 2 ? { ...e, stopReason } : e))
+
+const STOPPED: Record<string, string> = {
+  refusal: "codex did not finish: it refused this request, and its next turn won't include this message.",
+  max_tokens: 'codex did not finish: its reply reached the output token limit.',
+  max_turn_requests: 'codex did not finish: it reached its limit of model requests for this turn.',
+}
+for (const [stopReason, said] of Object.entries(STOPPED))
+  test(`a prompt that stops with ${stopReason} keeps what codex said, then says why in place of the signature`, async ($, on) => {
+    arrange(on, [], { stdout: lines(stoppedWith(stopReason)) })
+    await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+    const { chunks, result } = await runTurn($)
+    expect(result.answer).toBe(`REDIRECTED\n\n${said}`)
+    expect(result.usage).toBeNull()
+    expect(chunks.some((c) => c.kind === 'text' && c.text.includes('answered by'))).toBe(false)
+  })
+
+test('a refused prompt that a later prompt answers is signed: the last prompt is the answer', async ($, on) => {
+  arrange(on, [], {
+    // The interrupted prompt's stop reason, refused in its place.
+    stdout: lines(CAPTURED.map((e, i) => (i === 8 ? { ...e, stopReason: 'refusal' } : e))),
+  })
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  const { result } = await runTurn($)
+  expect(result.answer).toBe('REDIRECTED\n\n— answered by codex, gpt-6.1-sol')
+})
+
 test('an interrupt the relay already ran is neither rerun nor named as undelivered', async ($, on) => {
   const spawns: Spawn[] = []
   const writes: Write[] = []

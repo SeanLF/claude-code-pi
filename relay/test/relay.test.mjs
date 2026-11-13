@@ -19,6 +19,28 @@ test("an agent's error keeps the cause its data carries, not only 'Internal erro
   assert.equal(run.status, 1)
 })
 
+test('a refused or limit-stopped prompt is forwarded as it ended, not as a relay failure', () => {
+  for (const stop of ['refusal', 'max_tokens', 'max_turn_requests']) {
+    const run = spawnSync('node', [relay, '--', 'node', agent], {
+      input: 'hi',
+      encoding: 'utf8',
+      timeout: 20_000,
+      env: { ...process.env, FAKE_ECHO: '1', FAKE_STOP: stop },
+    })
+    const events = run.stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+    assert.equal(events.find((e) => e.relay === 'prompt_done')?.stopReason, stop)
+    assert.equal(events.find((e) => e.relay === 'done')?.stopReason, stop)
+    assert.equal(
+      events.some((e) => e.relay === 'error'),
+      false,
+    )
+    assert.equal(run.status, 0)
+  }
+})
+
 const said = (input, cwd = process.cwd()) => {
   const run = spawnSync('node', [relay, '--', 'node', agent], {
     input,

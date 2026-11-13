@@ -74,6 +74,25 @@ test('a failed subagent says why', () => {
   )
 })
 
+test('a refused or limit-stopped subagent says why, by the same mapping as the run; a cancelled one says so', () => {
+  const parse = relayEvents()
+  parse(JSON.stringify(CAPTURED[0]))
+  parse(JSON.stringify(CAPTURED[1]))
+  const idle = (stopReason: string) =>
+    parse(
+      JSON.stringify({
+        sessionId: ROOT,
+        update: { sessionId: CHILD, state: { state: 'idle', stopReason }, sessionUpdate: 'subagent_update' },
+      }),
+    )
+  const child = { k: 'child', id: CHILD, parent: ROOT, state: 'idle' }
+  expect(idle('refusal')).toEqual([{ ...child, failure: "it refused this request, and its next turn won't include this message" }])
+  expect(idle('max_tokens')).toEqual([{ ...child, failure: 'its reply reached the output token limit' }])
+  expect(idle('max_turn_requests')).toEqual([{ ...child, failure: 'it reached its limit of model requests for this turn' }])
+  expect(idle('cancelled')).toEqual([{ ...child, cancelled: true }])
+  expect(idle('end_turn')).toEqual([child])
+})
+
 const world = (): Children => ({ channels: new Map(), nested: new Map() })
 const of = (child: string, norm: Norm): Extract<Norm, { k: 'of' }> => ({ k: 'of', child, norm })
 
@@ -111,6 +130,28 @@ test("a subagent's first event spawns its nested agent once, and its nested agen
   expect(route(w, 'a1', 'via:codex', of('c', { k: 'model', name: 'gpt-6-luna' }))).toEqual([])
   closeChildren(w, 'a1')
   expect(w.channels.size).toBe(0)
+})
+
+// A child that wrote part of a reply, then ended as the parse of its idle state says.
+async function endedWith(end: { failure?: string; cancelled?: boolean }) {
+  const w = world()
+  route(w, 'a1', 'via:codex', { k: 'child', id: 'c', parent: 'root', title: 'List acp' })
+  route(w, 'a1', 'via:codex', of('c', { k: 'model', name: 'gpt-6-luna' }))
+  route(w, 'a1', 'via:codex', of('c', { k: 'text', t: 'steps.ts' }))
+  route(w, 'a1', 'via:codex', { k: 'child', id: 'c', parent: 'root', state: 'idle', ...end })
+  w.nested.set('n1', 'a1/c#1')
+  const gen = childRun(w, 'n1', 'codex', { turnId: 't1', index: 0 }, new AbortController().signal, false, () => new Promise(() => {}))
+  return (await drain(gen)).result.answer
+}
+
+test('a refused nested child keeps its text and says why, never a signature', async () => {
+  expect(await endedWith({ failure: "it refused this request, and its next turn won't include this message" })).toBe(
+    "steps.ts\n\nThe codex subagent failed: it refused this request, and its next turn won't include this message",
+  )
+})
+
+test('a cancelled nested child keeps its text and says it was cancelled, not that it failed or answered', async () => {
+  expect(await endedWith({ cancelled: true })).toBe('steps.ts\n\nThe codex subagent was cancelled before it finished.')
 })
 
 test('work after a subagent went idle is a new nested agent with the same title', () => {
