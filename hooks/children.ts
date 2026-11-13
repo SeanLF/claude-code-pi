@@ -203,6 +203,8 @@ export async function* childRun(
         }
     } else if (item.k === 'message') writer.message()
     else if (item.k === 'text') yield writer.text(item.t)
+    else if (item.k === 'thinking') yield writer.thinking(item.t)
+    else if (item.k === 'plan') yield* writer.plan(item.entries, null)
     else if (item.k === 'call')
       yield writer.call(item.id, { kind: item.kind, title: item.title, ...(item.path ? { path: item.path } : {}) }, null)
     else if (item.k === 'called') yield { kind: 'call-end', id: item.id, output: item.output, failed: item.failed }

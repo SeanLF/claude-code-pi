@@ -39,8 +39,6 @@ export type RunInput = {
   save(session: string): Promise<void>
 }
 
-const PLAN_MARKS: Record<string, string> = { pending: '☐', in_progress: '◐', completed: '☑' }
-
 // What a run has heard so far, as the harness's events come in.
 type RunState = {
   readonly writer: StepWriter
@@ -56,8 +54,6 @@ type RunState = {
   readonly asks: Ask[]
   readonly open: Set<string> // calls announced and not yet reported done
   readonly last: Totals // the last model call's usage: Claude Code reads input + cache as the agent's context
-  plan: string
-  plans: number
 }
 type Context = { readonly w: World; readonly agentId: string; readonly adapter: Adapter; readonly type: string; readonly inbox?: Inbox }
 
@@ -121,18 +117,8 @@ function take(s: RunState, c: Context, event: Norm): (TurnStepChunk | Mark)[] {
       const input = { kind: event.kind, title: event.title, ...(event.path ? { path: event.path } : {}) }
       return [s.writer.call(event.id, input, usageOf(s, c.adapter))]
     }
-    case 'plan': {
-      // A row of its own, opened and closed at once, as Claude Code's own to-do list is: only on a change.
-      const listed = event.entries.map((entry) => `${PLAN_MARKS[entry.status] ?? '☐'} ${entry.content}`).join('\n')
-      if (listed === s.plan) return []
-      s.plan = listed
-      s.plans += 1
-      const id = `plan-${s.plans}`
-      return [
-        s.writer.call(id, { kind: 'plan', title: 'Plan' }, usageOf(s, c.adapter)),
-        { kind: 'call-end', id, output: listed, failed: false },
-      ]
-    }
+    case 'plan':
+      return s.writer.plan(event.entries, usageOf(s, c.adapter))
     case 'called':
       if (!s.open.delete(event.id)) return []
       if (s.compacting.has(event.id) && !event.failed) s.compacted = true
@@ -184,8 +170,6 @@ export async function* run(
     asks: [],
     open: new Set(),
     last: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 },
-    plan: '',
-    plans: 0,
   }
   const c: Context = { w, agentId, adapter, type: `${$.plugin.name}:${adapter.name}`, ...(inbox ? { inbox } : {}) }
   const parse = adapter.events(session)

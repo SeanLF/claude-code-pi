@@ -532,9 +532,12 @@ test('only the last assistant message is the answer', async ($, on) => {
   ]
   arrange(on, [], [{ stream: 'stdout', text: `${two.map((e) => JSON.stringify(e)).join('\n')}\n` }])
   await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
-  const { result } = await run($)
+  const { chunks, result } = await run($)
   expect(result.answer).toBe('second\n\n— answered by pi, openrouter/kimi-2')
   expect(result.answer).not.toContain('first')
+  // Each message a block of its own: the answer's block holds only the last.
+  const blocks = chunks.filter((c) => c.kind === 'text').map((c) => c.index)
+  expect(new Set(blocks).size).toBe(2)
   // The last model call alone: 2 in, 2 out, not the run's 3 and 3.
   expect(result.usage).toEqual({
     model: 'openrouter/kimi-2',
@@ -775,4 +778,42 @@ test('a refusal for an agent via has no record of says why it runs read-only, no
   const { result } = await run($)
   expect(result.answer).toContain('via has no record of the permission mode this agent was spawned with')
   expect(result.answer).not.toContain('plan mode')
+})
+
+// The step writer's plan rows, shared with nested agents: a row per change, none for a repeated snapshot.
+test("a via agent's plan is a row each time it changes, its entries the row's output", async ($, on) => {
+  mock.env(on, { HOME: '/home/u' })
+  agentStore(on, { a1: { harness: 'codex' } })
+  on('agent.list', () => ({ value: [{ id: 'a1', description: 'parent', type: 'via:codex', status: 'running' }] }))
+  on('session.messages', () => ({ value: [] }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('fs.stat', () => ({ value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false } }))
+  on('fs.write', () => ({ value: undefined }))
+  on('process.run', () => ({ value: NODE }))
+  const plan = (status: string) => ({
+    sessionId: 's',
+    update: { sessionUpdate: 'plan', entries: [{ content: 'Read the code', status, priority: 'medium' }] },
+  })
+  const events = [
+    { relay: 'session', sessionId: 's', cwd: '/repo' },
+    { relay: 'steered' },
+    plan('in_progress'),
+    plan('in_progress'),
+    plan('completed'),
+    { sessionId: 's', update: { sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { type: 'text', text: 'Done.' } } },
+    { relay: 'done', stopReason: 'end_turn' },
+  ]
+  on('process.spawn', async function* () {
+    yield { stream: 'stdout' as const, text: piLines(events) }
+    return { value: { code: 0, signal: null } }
+  })
+  await $.turn.start({ turnId: 't1', agentId: 'a1', text: 'go' })
+  const { chunks, calls, result } = await runTurn($)
+  const rows = chunks.flatMap((c) => (c.kind === 'input' ? [JSON.parse(c.json)] : []))
+  expect(rows).toEqual([
+    { kind: 'plan', title: 'Plan' },
+    { kind: 'plan', title: 'Plan' },
+  ])
+  expect(calls).toEqual([{ result: '◐ Read the code' }, { result: '☑ Read the code' }])
+  expect(result.answer).toMatch(/^Done\.\n\n— answered by codex/)
 })
