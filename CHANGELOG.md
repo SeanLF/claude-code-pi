@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.0](https://github.com/SeanLF/claude-code-subagent-harnesses/compare/via-v0.9.0...via-v0.10.0) (2026-11-13)
+
+
+### Features
+
+* **via:** nested agents show thinking and plan updates, through the shared step writer ([#54](https://github.com/SeanLF/claude-code-subagent-harnesses/issues/54)) ([e0c5751](https://github.com/SeanLF/claude-code-subagent-harnesses/commit/e0c5751567f16f54e2a0f0ab10a2855df9f94601))
+
+
+### Bug Fixes
+
+* **via:** a refused or limit-stopped ACP run says so instead of signing ([#53](https://github.com/SeanLF/claude-code-subagent-harnesses/issues/53)) ([7625232](https://github.com/SeanLF/claude-code-subagent-harnesses/commit/7625232bc607668707df81b55a746641a9245db4))
+* **via:** hooks describe the harness types they read; a check keeps those copies honest ([#55](https://github.com/SeanLF/claude-code-subagent-harnesses/issues/55)) ([809b869](https://github.com/SeanLF/claude-code-subagent-harnesses/commit/809b8697800c4c8fd3c5fc17b091d701acaa518f))
+
 ## [0.9.0](https://github.com/SeanLF/claude-code-subagent-harnesses/compare/via-v0.8.1...via-v0.9.0) (2026-11-11)
 
 
