@@ -9,6 +9,8 @@ export class StepWriter {
   report = ''
   spoke = false
   private kind: 'text' | 'thinking' | undefined
+  private listed = '' // the plan last shown
+  private plans = 0
 
   constructor(first = 0) {
     this.index = first - 1
@@ -38,9 +40,10 @@ export class StepWriter {
     return this.push('thinking', t)
   }
 
-  // A new message: only the last one is the answer.
+  // A new message: only the last one is the answer, and it starts a block of its own.
   message(): void {
     this.report = ''
+    this.boundary()
   }
 
   // A chunk that ends a step: what follows starts a new block, in a step the answer is not yet in.
@@ -53,7 +56,19 @@ export class StepWriter {
     this.boundary()
     return { kind: 'call-start', id, input, usage }
   }
+
+  // A row of its own, opened and closed at once, as Claude Code's own to-do list is: only on a change.
+  plan(entries: readonly { content: string; status: string }[], usage: TurnUsage | null): Mark[] {
+    const listed = entries.map((entry) => `${PLAN_MARKS[entry.status] ?? '☐'} ${entry.content}`).join('\n')
+    if (listed === this.listed) return []
+    this.listed = listed
+    this.plans += 1
+    const id = `plan-${this.plans}`
+    return [this.call(id, { kind: 'plan', title: 'Plan' }, usage), { kind: 'call-end', id, output: listed, failed: false }]
+  }
 }
+
+const PLAN_MARKS: Record<string, string> = { pending: '☐', in_progress: '◐', completed: '☑' }
 
 // The line that ends a genuine answer.
 export const answeredBy = (who: string, by?: string) => `— answered by ${who}${by ? `, ${by}` : ''}`
