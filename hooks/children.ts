@@ -9,7 +9,10 @@ import { answeredBy, StepWriter } from './writer'
 // session says. Its events reach via only through the parent's run, which a parent step is always
 // reading while the harness runs, so the nested agent waits on a queue the parent's run fills.
 
-type Queued = Norm | { readonly k: 'end'; readonly failure?: string } | { readonly k: 'spawn'; readonly child: string }
+type Queued =
+  | Norm
+  | { readonly k: 'end'; readonly failure?: string; readonly cancelled?: boolean }
+  | { readonly k: 'spawn'; readonly child: string }
 export type Channel = {
   readonly key: string // this assignment's: a child's work after an end is a new nested agent
   readonly type: string // the nested agent's subagent_type
@@ -73,7 +76,7 @@ export function route(w: Children, agentId: string, type: string, event: Extract
     put(channel, event.norm)
   } else if (event.state === 'idle' && !channel.ended) {
     channel.ended = true
-    put(channel, { k: 'end', ...(event.failure ? { failure: event.failure } : {}) })
+    put(channel, { k: 'end', ...(event.failure ? { failure: event.failure } : {}), ...(event.cancelled ? { cancelled: true } : {}) })
   }
   return marks
 }
@@ -165,6 +168,7 @@ export async function* childRun(
   const channel = key === undefined ? undefined : w.channels.get(key)
   const writer = new StepWriter()
   let failure: string | undefined
+  let cancelled = false
   for (;;) {
     const item = channel?.queue.shift() ?? (channel === undefined ? ({ k: 'end' } as const) : undefined)
     if (item === undefined) {
@@ -185,6 +189,7 @@ export async function* childRun(
     }
     if (item.k === 'end') {
       failure = item.failure ?? failure
+      cancelled = item.cancelled === true
       // Kept while the run goes on, so its late patches are known as this child's, not a new one.
       if (channel) channel.read = true
       if (channel?.closed) for (const [key, held] of w.channels) if (held === channel) w.channels.delete(key)
@@ -209,10 +214,15 @@ export async function* childRun(
       yield writer.call(item.id, { kind: item.kind, title: item.title, ...(item.path ? { path: item.path } : {}) }, null)
     else if (item.k === 'called') yield { kind: 'call-end', id: item.id, output: item.output, failed: item.failed }
   }
-  // A failed child keeps what it said, then the failure in place of the signature: a signature says it answered.
-  const tail = failure ? `The ${name} subagent failed: ${failure}` : answeredBy(`${name} subagent`, channel?.model)
+  // A failed or cancelled child keeps what it said, then why in place of the signature: a signature says it
+  // answered. A cancel is most often its parent's own interrupt, so it reads as cancelled, not failed.
+  const tail = failure
+    ? `The ${name} subagent failed: ${failure}`
+    : cancelled
+      ? `The ${name} subagent was cancelled before it finished.`
+      : answeredBy(`${name} subagent`, channel?.model)
   const report = writer.report.trim()
-  const said = report || (failure ? '' : `The ${name} subagent ended without a message.`)
+  const said = report || (failure || cancelled ? '' : `The ${name} subagent ended without a message.`)
   const signed = [said, tail].filter(Boolean).join('\n\n')
   yield writer.say(`${report && writer.spoke ? '\n\n' : said ? `${said}\n\n` : ''}${tail}`)
   if (handback) return yield* deliver(name, e, writer.index + 1, signed, null)

@@ -17,6 +17,16 @@ export const clip = (text: string) => (text.length > 100 ? `${text.slice(0, 100)
 export const cap = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text)
 export const tail = (text: string, max: number) => (text.length > max ? `…${text.slice(-max)}` : text)
 
+// Why a prompt or a subagent's work ended unfinished, by its ACP stop reason: undefined when it finished,
+// was cancelled or failed with an error of its own. ACP asks clients to show a refusal, and the agent
+// forgets the refused prompt.
+const UNFINISHED: Readonly<Record<string, string>> = {
+  refusal: "it refused this request, and its next turn won't include this message",
+  max_tokens: 'its reply reached the output token limit',
+  max_turn_requests: 'it reached its limit of model requests for this turn',
+}
+export const unfinished = (stopReason: unknown) => (typeof stopReason === 'string' ? UNFINISHED[stopReason] : undefined)
+
 const tokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n))
 
 // A harness's compaction as a row's output: its sizes on the line that stays when the row folds, as
@@ -267,7 +277,11 @@ export function relayEvents(): (line: string) => Norm[] {
         // The prompt's own count of what it wrote, beside the context the last usage_update reported.
         const usage = isRecord(e.usage) ? e.usage : {}
         const output = typeof usage.outputTokens === 'number' ? usage.outputTokens : 0
-        return [{ k: 'usage', usage: { input: own.context(), cacheRead: 0, cacheWrite: 0, output } }]
+        const why = unfinished(e.stopReason)
+        return [
+          { k: 'usage', usage: { input: own.context(), cacheRead: 0, cacheWrite: 0, output } },
+          ...(why ? [{ k: 'unfinished', why } as const] : []),
+        ]
       }
       case undefined:
         break
@@ -283,14 +297,14 @@ export function relayEvents(): (line: string) => Norm[] {
       if (typeof u.sessionId !== 'string' || session === undefined) return []
       const now = isRecord(u.state) ? u.state : undefined
       const state = typeof now?.state === 'string' ? now.state : undefined
-      // A child's work that ended in a failure says so only here: v1 has no prompt response for it.
+      // A child's work that ended unfinished says so only here: v1 has no prompt response for it.
       const idle = now?.state === 'idle' ? now : undefined
       const failure =
         idle?.stopReason === 'error'
           ? isRecord(idle.error) && typeof idle.error.message === 'string'
             ? idle.error.message
             : 'error'
-          : undefined
+          : unfinished(idle?.stopReason)
       return [
         {
           k: 'child',
@@ -300,6 +314,7 @@ export function relayEvents(): (line: string) => Norm[] {
           ...(typeof u.description === 'string' ? { description: u.description } : {}),
           ...(state ? { state } : {}),
           ...(failure ? { failure } : {}),
+          ...(idle?.stopReason === 'cancelled' ? { cancelled: true } : {}),
         },
       ]
     }

@@ -1,7 +1,7 @@
 // A fake ACP agent for the relay's tests, on the SDK's own agent side. By default its prompt fails as
 // codex-acp's does when Codex hits its usage limit, with the cause in the error's data. With FAKE_ECHO
 // set it takes images and answers with what it was offered: the client's capabilities, as the SDK
-// hands them to an agent, and the prompt's block types.
+// hands them to an agent, and the prompt's block types; FAKE_STOP is the stop reason it ends with.
 import { Readable, Writable } from 'node:stream'
 // The unstable schema, as codex-acp's: the stable one has no plan capability and drops it.
 import * as acp from '@agentclientprotocol/sdk/unstable'
@@ -23,6 +23,6 @@ await acp
       sessionId: 's1',
       update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } },
     })
-    return { stopReason: 'end_turn' }
+    return { stopReason: process.env.FAKE_STOP || 'end_turn' }
   })
   .connect(acp.ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin))).closed

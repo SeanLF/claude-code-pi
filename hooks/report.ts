@@ -26,16 +26,19 @@ export function finish(args: {
   const chunks: TurnStepChunk[] = []
   let report = args.report
   const say = (t: string) => chunks.push(args.writer.say(t))
-  if (!args.writer.spoke && !args.failure && report.trim()) say(report.trim())
+  if (!args.writer.spoke && report.trim()) say(report.trim())
   if (args.stopped === 'limit') {
     const partial = report.trim()
     const notice = `${name} ran past ${args.timeoutMinutes} minutes and was stopped.`
     report = partial ? `${partial}\n\n${notice}` : notice
     say(partial ? `\n\n${notice}` : notice)
   }
+  // A failure keeps what the harness said before it, as a failed nested child does: a reply cut off at a
+  // limit is still the reply so far.
   if (args.failure) {
-    report = args.failure
-    say(`\n${args.failure}`)
+    const partial = report.trim()
+    report = partial ? `${partial}\n\n${args.failure}` : args.failure
+    say(partial ? `\n\n${args.failure}` : `\n${args.failure}`)
   }
   if (args.notices.length > 0 && !args.failure) {
     const said = args.notices.join('\n')

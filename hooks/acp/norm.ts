@@ -21,11 +21,13 @@ export type Norm =
   | { readonly k: 'usage'; readonly usage: Usage } // the core keeps the last one: per message, never a running total
   | { readonly k: 'steered' }
   | { readonly k: 'error'; readonly message: string }
+  | { readonly k: 'unfinished'; readonly why: string } // the prompt ended unfinished: a refusal or a limit
   | { readonly k: 'notice'; readonly t: string } // said after the answer, as part of it
   | { readonly k: 'interrupted' } // the harness took an interrupt itself: nothing for the core to rerun
   | { readonly k: 'ask'; readonly ask: Ask } // a permission question for the person; the core writes the answer to the inbox
   // A subagent the harness started (ACP's subagent_update), announced or updated: parent is the session that
-  // owns it, state its current work (idle: done for now), failure why its work ended, when it failed.
+  // owns it, state its current work (idle: done for now), failure why its work ended, when it failed or
+  // ended unfinished; cancelled, when its work was cancelled (most often by its parent's interrupt).
   | {
       readonly k: 'child'
       readonly id: string
@@ -34,6 +36,7 @@ export type Norm =
       readonly description?: string
       readonly state?: string
       readonly failure?: string
+      readonly cancelled?: boolean
     }
   | { readonly k: 'of'; readonly child: string; readonly norm: Norm } // what a subagent's own session said
 

@@ -46,7 +46,7 @@ type RunState = {
   latest: string | undefined // the run's session: the one it resumed, or the one it issued
   answeredBy: string
   readonly notices: string[]
-  error: string
+  error: string // the run's failure as said, cleared by a later model call
   steered: number
   touched: boolean // a tool line moved the panel row on
   readonly compacting: Set<string>
@@ -105,7 +105,10 @@ function take(s: RunState, c: Context, event: Norm): (TurnStepChunk | Mark)[] {
       s.notices.push(event.t)
       return []
     case 'error':
-      s.error = event.message
+      s.error = `${c.adapter.name}'s model call failed: ${event.message}`
+      return []
+    case 'unfinished':
+      s.error = `${c.adapter.name} did not finish: ${event.why}.`
       return []
     case 'text':
       return [s.writer.text(event.t)]
@@ -242,7 +245,7 @@ export async function* run(
       )
         s.writer.report = 'Compacted the conversation.'
       if (known !== undefined) failure = known.message
-      else if (s.error) failure = `${adapter.name}'s model call failed: ${s.error}`
+      else if (s.error) failure = s.error
       else if (exit.code !== 0 || !s.writer.report.trim()) {
         const why = stderr.replace(ANSI, '').trim() || '(no stderr)'
         failure =
