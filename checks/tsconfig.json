@@ -1,0 +1,11 @@
+{
+  "//": "The harnesses' published types against via's own copies of them; needs the packages installed, not Claude Code's typings.",
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2023"],
+    "types": [],
+    "module": "esnext",
+    "moduleResolution": "bundler"
+  },
+  "include": ["."]
+}

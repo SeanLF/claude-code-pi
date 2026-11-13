@@ -43,6 +43,8 @@ jobs:
         run: |
           npx -y pnpm@12.15.0 install --frozen-lockfile
           npx -y pnpm@12.15.0 lint
+          # Hooks may import only their own files: their copies of the harnesses' types must match the published ones.
+          npx -y pnpm@12.15.0 check:types
           npx -y pnpm@12.15.0 build:relay
           git diff --exit-code relay/relay.mjs
           npx -y pnpm@12.15.0 test:relay
