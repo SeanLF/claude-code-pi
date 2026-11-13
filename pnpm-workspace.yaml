@@ -12,7 +12,7 @@ minimumReleaseAgeExclude:
   - '@openai/codex-sdk@0.167.1'
 # The harness packages are installed for their types only: none of their code runs.
 # Dropped: pi's runtime dependencies its types never reach (179 MB -> 74 MB).
-# A type that moves into one of these turns into `any`; hooks/adapters/pi.ts
+# A type that moves into one of these turns into `any`; checks/sdk.ts
 # fails the type check when that happens.
 overrides:
   '@anthropic-ai/sdk': '-'

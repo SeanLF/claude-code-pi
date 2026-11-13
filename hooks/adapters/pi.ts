@@ -1,33 +1,7 @@
-import type { ExtensionAPI, JsonAgentSessionEvent } from '@earendil-works/pi-coding-agent'
 import { cap, clip, compactionOutput, diffOf, diffRows, relative, tail } from '../acp/events'
 import { isRecord } from '../acp/json'
 import type { Adapter, Norm } from '../adapter'
-
-// Each line must fail to compile. If pnpm-workspace.yaml drops the package a type lives
-// in, the type silently stops checking anything and the line compiles: tsc then reports
-// the unused @ts-expect-error, instead of passing misspelt fields.
-type Of<K extends JsonAgentSessionEvent['type']> = Extract<JsonAgentSessionEvent, { type: K }>
-type Reply = Extract<Of<'message_end'>['message'], { role: 'assistant' }>
-export const typed = (e: {
-  start: Of<'message_start'>
-  end: Reply
-  update: Of<'message_update'>
-  tool: Of<'tool_execution_start'>
-  api: ExtensionAPI
-}) => [
-  // @ts-expect-error a real message has no such field
-  e.start.message.bogus,
-  // @ts-expect-error a real Usage has no such field
-  e.end.usage.bogus,
-  // @ts-expect-error a real stop reason is a string
-  e.end.stopReason.bogus,
-  // @ts-expect-error a real update event has no such field
-  e.update.assistantMessageEvent.bogus,
-  // @ts-expect-error a real tool name is a string
-  e.tool.toolName.bogus,
-  // @ts-expect-error a real ExtensionAPI has no such member
-  e.api.bogus,
-]
+import type { PiEvent } from '../wire'
 
 const THINKING = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
@@ -165,7 +139,7 @@ export const pi = {
       // The session header, which is not one of pi's typed events, names the working folder.
       if (raw?.type === 'session' && typeof raw.cwd === 'string') cwd = raw.cwd.replace(/\/+$/, '')
       // The type is pi's promise about its output, not a check of it: fields stay optional-chained.
-      const e = raw as JsonAgentSessionEvent | undefined
+      const e = raw as PiEvent | undefined
       switch (e?.type) {
         case 'message_start':
           if (e.message?.role !== 'assistant') return []

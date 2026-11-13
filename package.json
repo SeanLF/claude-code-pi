@@ -2,7 +2,8 @@
   "private": true,
   "packageManager": "pnpm@12.15.0",
   "scripts": {
-    "typecheck": "tsc -b . pi-extension relay mcp",
+    "typecheck": "tsc -b . pi-extension relay mcp checks",
+    "check:types": "tsc -p checks",
     "test": "claude plugin test . < /dev/null",
     "validate": "claude plugin validate --strict . < /dev/null",
     "build:relay": "esbuild relay/src/relay.mts --bundle --platform=node --format=esm --target=node22 --legal-comments=inline --outfile=relay/relay.mjs --banner:js='// Built from relay/src/relay.mts by pnpm build:relay; do not edit.'",

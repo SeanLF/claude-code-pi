@@ -1,6 +1,6 @@
-import type { SessionUpdate, ToolCallContent } from '@agentclientprotocol/sdk/unstable'
 import { isRecord } from './json'
 import type { Ask, Norm } from './norm'
+import type { SessionUpdate } from './wire'
 
 // An ACP agent runs behind relay/relay.mjs, which holds the connection open: the engine writes a
 // spawn's stdin once and closes it. The relay prints ACP session updates and {"relay": ...} events.
@@ -50,7 +50,7 @@ export function diffOf(path: string, oldText: string, newText: string): string {
 // What a finished tool call returned, as the agent reported it: its text content, a diff of each file
 // it edited, or its raw output. An exit code alone is not output (codex-acp reports one there): the
 // parser keeps it apart. Kept short: it lands in the subagent's transcript.
-function outputOf(u: { content?: ToolCallContent[] | null; rawOutput?: unknown }, cwd: string): string {
+function outputOf(u: { readonly content?: unknown; readonly rawOutput?: unknown }, cwd: string): string {
   const parts: string[] = []
   for (const item of Array.isArray(u.content) ? u.content.filter(isRecord) : []) {
     // Typed, but still an agent's JSON: a content item can come without its content.
@@ -193,14 +193,14 @@ function sessionEvents(cwdOf: () => string) {
           out.push({ k: 'call', id, kind: 'compact', title: 'conversation' })
         }
         const c = compactions.get(id) ?? { before: context, summary: '' }
-        const blocks = u.sessionUpdate === 'compaction_summary_chunk' ? [u.content] : (u.summary ?? [])
+        const blocks = u.sessionUpdate === 'compaction_summary_chunk' ? [u.content] : Array.isArray(u.summary) ? u.summary : []
         const said = blocks.map((b) => (isRecord(b) && b.type === 'text' && typeof b.text === 'string' ? b.text : '')).join('')
         c.summary = u.sessionUpdate === 'compaction_summary_chunk' ? c.summary + said : u.summary === undefined ? c.summary : said
         if (u.sessionUpdate === 'compaction_update' && u.status !== 'in_progress' && !ended.has(id)) {
           ended.add(id)
           const failed = u.status !== 'completed'
           const output = failed
-            ? u.error || `Compaction ${u.status}.`
+            ? (typeof u.error === 'string' && u.error) || `Compaction ${u.status}.`
             : compactionOutput({ before: c.before || undefined, summary: c.summary })
           out.push({ k: 'called', id, output, failed })
         }
