@@ -6,7 +6,7 @@ import { run as runHook } from '../hooks/run'
 import { ENV, hang, hold, run, type Spawn, testWorld, type Write } from './helpers'
 
 const START = { type: 'message_start', message: { role: 'assistant', provider: 'openrouter', model: 'kimi' } }
-// No call id: a text line, as agy sends, which feeds the panel row. pi's calls carry ids and become steps
+// No call id: a text line, which feeds the panel row. pi's calls carry ids and become steps
 // instead (tests/adapters/pi.test.ts pins that pi emits no text line for them).
 const TOOL = { type: 'tool_execution_start', toolName: 'bash', args: { command: 'npm test' } }
 const END = { type: 'message_end', message: { role: 'assistant', usage: { input: 1, output: 1 } } }
@@ -133,7 +133,7 @@ test('an aborted run clears its agent-panel row', async () => {
     guard: undefined,
     mode: 'default' as const,
   }
-  const stream = runHook(world, pi, $, { ...input, probe: async () => undefined, save: async () => {} })
+  const stream = runHook(world, pi, $, { ...input, save: async () => {} })
   const pending = (async () => {
     for (;;) if ((await stream.next()).done) return
   })()
@@ -304,7 +304,7 @@ test('a run ended from outside while parked between pieces stops its harness', a
     plugin: { root: '/' },
   } as unknown as Parameters<typeof runHook>[2]
   const input = { agentId: 'a1', choice: {}, prompt: 'go', signal: new AbortController().signal, mode: 'default' as const }
-  const stream = runHook(world, pi, $, { ...input, probe: async () => undefined, save: async () => {} } as never)
+  const stream = runHook(world, pi, $, { ...input, save: async () => {} } as never)
   // Parked at its first chunk, as after a step that read this far; then ended, as endJob or an Esc does.
   await stream.next()
   await stream.return(undefined as never)

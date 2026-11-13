@@ -101,9 +101,11 @@ export function helpOf(adapter: HelpAdapter, models: readonly string[]): string 
       : `Model precedence: a model line, then ${name}'s own default.`,
   )
   lines.push(
-    adapter.steer
-      ? 'A message to a running agent reaches it at its next step; a message to an idle agent is a follow-up.'
-      : 'Messages to an agent are follow-ups: this harness takes no mid-run steering.',
+    adapter.steer === 'queued'
+      ? 'A message to a running agent waits for its current turn to end, then runs; a message to an idle agent is a follow-up.'
+      : adapter.steer
+        ? 'A message to a running agent reaches it at its next step; a message to an idle agent is a follow-up.'
+        : 'Messages to an agent are follow-ups: this harness takes no mid-run steering.',
   )
   if (adapter.steer) lines.push('A message starting interrupt: stops the current step and runs at once.')
   lines.push(`A genuine answer ends with — answered by ${name}, <model>. Example:`)
@@ -117,7 +119,12 @@ export function descriptionOf(adapter: HelpAdapter, models: readonly string[]): 
   const top = models[0] ? [`\`model: ${models[0]}\``] : []
   if (adapter.readOnly !== 'none') top.push('`tools: read`')
   if (adapter.thinking.length > 0) top.push('`thinking: high`')
-  const steer = adapter.steer ? ' SendMessage steers it mid-run; one starting `interrupt:` stops its current step first.' : ''
+  const steer =
+    adapter.steer === 'queued'
+      ? ' SendMessage to it running waits for its current turn; one starting `interrupt:` stops its current step first.'
+      : adapter.steer
+        ? ' SendMessage steers it mid-run; one starting `interrupt:` stops its current step first.'
+        : ''
   return `${adapter.about} Top lines: ${top.join(' ')}. \`via-help\` for more.${steer}`
 }
 

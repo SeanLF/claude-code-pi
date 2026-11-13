@@ -208,7 +208,6 @@ test('an aborted run saves a session id in an unterminated tail without showing 
     session: undefined,
     guard: undefined,
     mode: 'default',
-    probe: async () => undefined,
     save: async (id) => {
       saved.push(id)
     },

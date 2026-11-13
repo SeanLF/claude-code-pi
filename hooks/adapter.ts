@@ -19,7 +19,9 @@ export type Adapter = {
   readonly readOnly: 'enforced' | 'none'
   readonly tools?: readonly string[] // the only values a tools line may take; absent: a free tool list
   readonly thinking: readonly string[]
-  readonly steer: boolean
+  // true: a message reaches a running agent at its next step. queued: it runs when the agent's current
+  // prompt ends, and `interrupt:` still stops the current step.
+  readonly steer: boolean | 'queued'
   readonly defaultModel: boolean // takes the plugin's defaultModel setting
   readonly models?: string
   // A folder that voids read-only when found in the working folder or any folder above it, unless
@@ -52,14 +54,6 @@ export type Adapter = {
   }): ProcessSpawnRequest
   // A parser per run: message boundaries can depend on earlier lines, and session is what the run asked to resume.
   events(session: string | undefined): (line: string) => Norm[]
-  // Asks the harness at no cost which model answered: alongside the run from its flags, or after
-  // it from the session it ran in (`after`), when only the session can say.
-  readonly probe?: {
-    readonly after?: boolean
-    argv(choice: Choice, session?: string): string[]
-    env?(choice: Choice): Record<string, string> | undefined
-    model(stdout: string): string | undefined
-  }
   model(choice: Choice): string | undefined // a real model name when the stream names none, never a pattern
   // A known failure in plain words; sessionLost forgets the saved session so the next message starts fresh.
   failure?(exit: ProcessSpawnResult, stderr: string): { message: string; sessionLost?: boolean } | undefined

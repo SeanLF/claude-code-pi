@@ -1,5 +1,5 @@
-// pi's and agy's tool calls reach Claude Code as text lines, not tool calls (Codex's and OpenCode's are
-// calls to the step tool: hooks/acp/steps.ts), so for them Claude Code's subagentStatusLine draws the
+// A pi tool call without an id reaches Claude Code as a text line, not a tool call (the ACP harnesses'
+// are calls to the step tool: hooks/acp/steps.ts), so for it Claude Code's subagentStatusLine draws the
 // latest one from the row files run.ts writes.
 export type Activity = { readonly step: string; readonly tools: number }
 

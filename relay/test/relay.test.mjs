@@ -72,3 +72,21 @@ test('a symlink or .. that leads out of the working folder stays text, and at mo
   })
   assert.equal(said(`See ${many.join(' ')}`, dir).blocks.length, 1 + 4)
 })
+
+const resumed = (session, replays) =>
+  spawnSync('node', [relay, '--', 'node', agent], {
+    input: 'hi',
+    encoding: 'utf8',
+    timeout: 20_000,
+    env: { ...process.env, FAKE_ECHO: '1', RELAY_SESSION: session, ...(replays ? { RELAY_LOAD_REPLAYS: '1' } : {}) },
+  })
+
+test('an agent that replays history loses a session whose load replays none, rather than starting it fresh', () => {
+  const gone = resumed('unknown', true)
+  assert.equal(gone.status, 1)
+  assert.match(gone.stderr, /acp relay: session lost: /)
+  assert.ok(!gone.stdout.includes('agent_message_chunk'))
+  assert.equal(resumed('known', true).status, 0)
+  // Not every agent replays: without the flag a quiet load still runs.
+  assert.equal(resumed('unknown', false).status, 0)
+})

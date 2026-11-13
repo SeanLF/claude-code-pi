@@ -10259,6 +10259,7 @@ var out = (event) => process.stdout.write(`${JSON.stringify(event)}
 var agentPid;
 var busy = false;
 var spokeIdle = false;
+var heard = 0;
 var fail = (message) => {
   out({ relay: "error", message });
   process.stderr.write(`acp relay: ${message}
@@ -10386,6 +10387,7 @@ var result = await client({ name: "via" }).onRequest(methods.client.session.requ
   );
 }).onNotification(methods.client.session.update, (ctx) => {
   if (!busy && ctx.params.update.sessionUpdate === "agent_message_chunk") spokeIdle = true;
+  if (ctx.params.update.sessionUpdate === "user_message_chunk") heard += 1;
   out(ctx.params);
 }).connectWith(stream, async (ctx) => {
   const init = await ctx.request(methods.agent.initialize, {
@@ -10393,15 +10395,19 @@ var result = await client({ name: "via" }).onRequest(methods.client.session.requ
     clientCapabilities: CAPABILITIES
   });
   const resume = process.env.RELAY_SESSION;
-  const opened = resume ? await ctx.request(methods.agent.session.load, { sessionId: resume, cwd, mcpServers: [] }).catch((error2) => {
-    const message = reason(error2);
-    const data = JSON.stringify(error2?.data ?? "");
-    if (!/not found/i.test(`${message} ${data}`)) return fail(`could not resume the session: ${message}`);
+  const lost = (message) => {
     out({ relay: "session_lost", message });
     process.stderr.write(`acp relay: session lost: ${message}
 `);
     return process.exit(1);
+  };
+  const opened = resume ? await ctx.request(methods.agent.session.load, { sessionId: resume, cwd, mcpServers: [] }).catch((error2) => {
+    const message = reason(error2);
+    const data = JSON.stringify(error2?.data ?? "");
+    if (!/not found/i.test(`${message} ${data}`)) return fail(`could not resume the session: ${message}`);
+    return lost(message);
   }) : await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
+  if (resume && process.env.RELAY_LOAD_REPLAYS === "1" && heard === 0) lost("the agent replayed no history for it");
   const sessionId = resume ?? opened.sessionId;
   out({ relay: "session", sessionId, cwd });
   cancel = async () => {
